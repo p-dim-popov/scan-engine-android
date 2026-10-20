@@ -36,7 +36,7 @@ The host build also needs a C compiler and Python 3. Python 3 generates pixma's 
 
 ## Tests
 
-`tests/engine_host_test.c` scans with the SANE `test` backend through the Engine core into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors, a reader that closes the pipe early, and memory that stays bounded for a 134 MB Page.
+`tests/engine_host_test.c` scans with the SANE `test` backend through the Engine core into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, and memory that stays bounded for a 134 MB Page. Every test has a 60 s CTest timeout, so a hang fails the run.
 
 ## Licence guards
 
@@ -56,7 +56,8 @@ The first commit imports the three upstream trees unchanged, so `git log -p thir
 2. `sanei/sanei_usb.c`, `include/sane/sanei_usb.h`: `sanei_usb_set_android_fd()`. libusb skips device discovery on Android; the app's USB file descriptor is wrapped with `libusb_wrap_sys_device` and registered as `libusb:android:<fd>`. Open and close reuse that handle.
 3. `sanei/sanei_init_debug.c`: on Android, debug output goes to logcat.
 4. `sanei/sanei_thread.c`: bionic has no `pthread_cancel`; Android uses the existing macOS path (`SIGUSR2` and `pthread_kill`).
-5. Build: CMake instead of autotools. pixma's generated option tables are made at build time.
+5. `backend/test.c`: in thread mode, `finish_pass` no longer cancels the reader thread. It closes the pipe, so the reader's next write fails and the thread ends, and then joins it. The reader blocks SIGPIPE and frees its buffer on that path. `sanei_thread_kill` cancels a thread asynchronously on Linux (`SIGUSR2` and `pthread_exit` on Android), and a cancel in the reader's first `malloc` left the join waiting for ever in about 1 newly started process in 10. pixma already stops its reader this way.
+6. Build: CMake instead of autotools. pixma's generated option tables are made at build time.
 
 ## Updating upstream
 
