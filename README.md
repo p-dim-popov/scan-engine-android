@@ -34,7 +34,7 @@ The module's manifest declares `EngineService` in the process `:engine`, not exp
 
 On the Linux host, it builds as a static library and a test executable. `mise.toml` pins CMake, Ninja, shellcheck and actionlint and defines a mise task for each step: `mise tasks` lists them, and `mise run <name>` runs one with the pinned tools on the PATH. A mise task runs the ones it needs first, so `mise run test` also configures and builds. `mise run lint` runs shellcheck on `scripts/` and actionlint on the CI workflow; any finding fails it. `mise run ci` runs the same steps as CI, in the same order.
 
-The host build also needs a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
+The host build also needs a C compiler, Python 3 and a JDK. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does. The JDK provides `jni.h`: the host build compiles the JNI glue (`src/engine_jni.c`) without linking it, so an error there fails the host build and CI, not only the consuming app's build.
 
 ## Tests
 
@@ -45,7 +45,7 @@ The host build also needs a C compiler and Python 3. Python 3 generates pixma's 
 CI fails when:
 
 - `ENGINE_BACKENDS` names a backend that is not in `licensing/backend-allowlist.txt`. The check runs when CMake configures the build.
-- An Engine source file (`.c`, `.h`, `.in`, `.kt`, `.java` or `.aidl` outside `third_party/`) does not contain the SANE exception text: `scripts/check-licence-notices.sh`.
+- An Engine source file (`.c`, `.h`, `.in`, `.kt`, `.java` or `.aidl` outside `third_party/`), committed or not yet added to git, does not contain the SANE exception text: `scripts/check-licence-notices.sh`. Git-ignored build output is skipped.
 - A compiled file under `sane-backends/backend` or `sane-backends/sanei` does not contain the SANE exception text: `scripts/check-sane-exception.sh`. This includes every header and `#include`d `.c` file, read from Ninja's dependency log. A file is exempt only when it is under a non-GPL permissive licence and is listed in `licensing/sane-exception-exemptions.txt` with the reason.
 
 One exception-free GPL file in the Engine process would put the whole process under the plain GPL. Run the guards again after every upstream rebase: a maintainer can withdraw the exception.
