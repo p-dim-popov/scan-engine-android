@@ -1,0 +1,31 @@
+# scan-engine-android: host build, host tests and licence guards.
+# Copyright (C) 2026 Petar Popov
+# GPL-2.0-or-later with the SANE exception; see README.md and COPYING.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # Configuring fails when ENGINE_BACKENDS names a backend outside
+      # licensing/backend-allowlist.txt.
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Host tests (test backend scans, Page stream, guard self-tests)
+        run: ctest --test-dir build --output-on-failure
+
+      - name: SANE exception guard
+        run: scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt
