@@ -13,22 +13,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Installs the CMake and Ninja versions pinned in mise.toml.
+      # Installs the CMake and Ninja versions pinned in mise.toml. Each step below
+      # is a mise task from mise.toml; `mise run ci` runs the same steps locally.
       - uses: jdx/mise-action@v5
 
       # Configuring fails when ENGINE_BACKENDS names a backend outside
       # licensing/backend-allowlist.txt.
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: mise run configure
 
       - name: Build
-        run: cmake --build build
+        run: mise run build
 
       - name: Host tests (test backend scans, Page stream, guard self-tests)
-        run: ctest --test-dir build --output-on-failure
+        run: mise run test
 
-      - name: SANE exception guard (compiled sane-backends files)
-        run: scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt
-
-      - name: Licence notice guard (Engine sources)
-        run: scripts/check-licence-notices.sh
+      - name: Licence guards (compiled sane-backends files, Engine sources)
+        run: mise run guards

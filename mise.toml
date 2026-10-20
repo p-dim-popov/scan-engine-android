@@ -1,4 +1,38 @@
+# scan-engine-android: host build tools and mise tasks.
+# Copyright (C) 2026 Petar Popov
+# GPL-2.0-or-later with the SANE exception; see README.md and COPYING.
+
 # Host build tools. The Android build uses the SDK's CMake through Gradle.
 [tools]
 cmake = "4.4.4"
 ninja = "1.13.2"
+
+# `mise tasks` lists these; `mise run <name>` runs one with the tools above on the PATH.
+# Each mise task runs the ones it needs first, so any of them can run on its own.
+
+[tasks.configure]
+description = "Configure the host build in build/; fails on a backend outside the allow-list"
+run = "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
+
+[tasks.build]
+description = "Build the Engine and its host tests"
+depends = ["configure"]
+run = "cmake --build build"
+
+[tasks.test]
+description = "Run the host tests (test backend scans, Page stream, guard self-tests)"
+depends = ["build"]
+run = "ctest --test-dir build --output-on-failure"
+
+[tasks.guards]
+description = "Run the licence guards: SANE exception in compiled sane-backends files, notices in Engine sources"
+depends = ["build"]
+run = [
+    "scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt",
+    "scripts/check-licence-notices.sh",
+]
+
+# The steps of .github/workflows/ci.yml, in the same order.
+[tasks.ci]
+description = "Run every CI step in order: configure, build, test, guards"
+run = [{ task = "configure" }, { task = "build" }, { task = "test" }, { task = "guards" }]

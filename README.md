@@ -30,17 +30,9 @@ The backends link statically into one library, `sane_engine`, through their `san
 
 On Android, `android/` is an Android library module. The consuming app adds this repository as a git submodule and includes `android/` as a Gradle project, so the Android Gradle plugin, NDK and CMake build it as part of the app build. The ABIs are arm64-v8a and x86_64.
 
-On the Linux host, it builds as a static library and a test executable:
+On the Linux host, it builds as a static library and a test executable. `mise.toml` pins CMake and Ninja and defines a mise task for each step: `mise tasks` lists them, and `mise run <name>` runs one with the pinned tools on the PATH. A mise task runs the ones it needs first, so `mise run test` also configures and builds. `mise run ci` runs the same steps as CI, in the same order.
 
-```sh
-mise x -- cmake -S . -B build -G Ninja
-mise x -- cmake --build build
-mise x -- ctest --test-dir build --output-on-failure
-mise x -- scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt
-scripts/check-licence-notices.sh
-```
-
-`mise.toml` pins CMake and Ninja; `mise x --` runs a command with them on the PATH. The host build also needs a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
+The host build also needs a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
 
 ## Tests
 
@@ -70,7 +62,7 @@ The first commit imports the three upstream trees unchanged, so `git log -p thir
 
 1. `scripts/import-upstream.sh <name> <unpacked release>` replaces `third_party/<name>` and stages it. A plain `git add` drops the files that upstream's own `.gitignore` files match; the script adds them all and fails if any is missing.
 2. Commit the import alone.
-3. Reapply the changes above, build, and run the tests and the guards.
+3. Reapply the changes above, then build and run the tests and the guards: `mise run ci`.
 
 ## Working on the Engine
 
