@@ -10,6 +10,7 @@
 #   engine       Engine core (backend table, handles, Page stream); on
 #                Android libengine.so with the JNI glue, on the host a static
 #                library
+#   engine_jni_check  host only: compiles the JNI glue against the JDK's jni.h
 #   engine_host_test  host only: drives the test backend through the Engine core
 cmake_minimum_required(VERSION 3.22)
 project(scan_engine C)
@@ -119,6 +120,13 @@ if(ANDROID)
   add_library(engine SHARED src/engine.c src/engine_jni.c)
 else()
   add_library(engine STATIC src/engine.c)
+  # The JNI glue only runs on Android, but compiling it here as well makes an
+  # error in it fail the host build and CI, not only the consuming app's build.
+  find_package(JNI REQUIRED COMPONENTS JVM)
+  add_library(engine_jni_check OBJECT src/engine_jni.c)
+  target_include_directories(engine_jni_check PRIVATE ${JNI_INCLUDE_DIRS})
+  target_compile_options(engine_jni_check PRIVATE -Wall -Wextra -Werror)
+  target_link_libraries(engine_jni_check PRIVATE engine)
 endif()
 target_include_directories(engine
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
