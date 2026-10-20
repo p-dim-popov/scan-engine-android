@@ -14,6 +14,7 @@ foreach(name
     three_pass_page_has_a_header_per_colour_frame
     page_of_unknown_height_still_ends_cleanly
     backend_error_ends_the_page_with_its_status
+    backend_error_right_after_start_never_hangs
     app_closing_the_pipe_cancels_the_page
     large_page_streams_in_bounded_memory
     linked_backends_are_found_by_name)
@@ -42,3 +43,8 @@ add_test(NAME notice_guard_rejects_engine_sources_without_the_exception
   COMMAND ${CMAKE_COMMAND} -DGUARD=${PROJECT_SOURCE_DIR}/scripts/check-licence-notices.sh
           -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/notice-guard
           -P ${CMAKE_CURRENT_SOURCE_DIR}/guards/LicenceNoticeGuardTest.cmake)
+
+# A hang fails its test instead of holding the run: every test above runs in
+# about 2 s or less.
+get_property(host_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${host_tests} PROPERTIES TIMEOUT 60)

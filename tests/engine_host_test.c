@@ -42,6 +42,7 @@
    app does.  Run one test by name, or all with no argument.  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -49,6 +50,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "engine.h"
@@ -489,6 +491,36 @@ backend_error_ends_the_page_with_its_status (void)
   close_test_scanner ();
 }
 
+/* After a backend error the Engine cancels the Page at once, while the
+   backend's reader thread may still be starting.  A cancel in that window
+   used to hang in about 1 newly started process in 10, and far less often
+   later in a process, so this runs the backend error test 300 times, each in
+   a newly executed copy of this program that SIGALRM ends if it hangs.  */
+static void
+backend_error_right_after_start_never_hangs (void)
+{
+  int i, wstatus = 0;
+  fflush (NULL);
+  for (i = 0; i < 300; i++)
+    {
+      pid_t child = fork ();
+      if (child == 0)
+        {
+          int null = open ("/dev/null", O_WRONLY);
+          dup2 (null, STDOUT_FILENO);
+          alarm (2);
+          execl ("/proc/self/exe", "engine_host_test",
+                 "backend_error_ends_the_page_with_its_status", (char *) NULL);
+          _exit (127);
+        }
+      if (child < 0 || waitpid (child, &wstatus, 0) != child
+          || !WIFEXITED (wstatus) || WEXITSTATUS (wstatus) != 0)
+        break;
+    }
+  CHECK (!WIFSIGNALED (wstatus));
+  CHECK_EQ (i, 300);
+}
+
 static void
 app_closing_the_pipe_cancels_the_page (void)
 {
@@ -577,6 +609,8 @@ static const struct
     page_of_unknown_height_still_ends_cleanly },
   { "backend_error_ends_the_page_with_its_status",
     backend_error_ends_the_page_with_its_status },
+  { "backend_error_right_after_start_never_hangs",
+    backend_error_right_after_start_never_hangs },
   { "app_closing_the_pipe_cancels_the_page",
     app_closing_the_pipe_cancels_the_page },
   { "large_page_streams_in_bounded_memory",

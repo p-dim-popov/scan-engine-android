@@ -1506,6 +1506,7 @@ reader_process (Test_Device * test_device, SANE_Int fd)
 	{
 	  DBG (1, "(child) reader_process: write returned %s\n",
 	       strerror (errno));
+	  free (buffer);
 	  return SANE_STATUS_IO_ERROR;
 	}
       byte_count += (size_t) bytes_written;
@@ -1554,6 +1555,14 @@ reader_task (void *data)
   else
     {
       DBG (3, "reader_task started (as thread)\n");
+#ifdef USE_PTHREAD
+      /* finish_pass stops this thread by closing the pipe, so a write to
+         it must fail with EPIPE rather than raise SIGPIPE.  */
+      sigset_t sigs;
+      sigemptyset (&sigs);
+      sigaddset (&sigs, SIGPIPE);
+      pthread_sigmask (SIG_BLOCK, &sigs, NULL);
+#endif
     }
 
   memset (&act, 0, sizeof (act));
@@ -1586,7 +1595,12 @@ finish_pass (Test_Device * test_device)
 
       DBG (2, "finish_pass: terminating reader process %ld\n",
 	   (long) test_device->reader_pid);
-      sanei_thread_kill (test_device->reader_pid);
+      /* A reader thread ends by itself: the pipe is closed above, so its
+	 next write fails.  sanei_thread_kill would cancel it
+	 asynchronously, which can stop it inside malloc and leave the join
+	 below waiting for ever.  */
+      if (sanei_thread_is_forked ())
+	sanei_thread_kill (test_device->reader_pid);
       pid = sanei_thread_waitpid (test_device->reader_pid, &status);
       if (!sanei_thread_is_valid (pid))
 	{
