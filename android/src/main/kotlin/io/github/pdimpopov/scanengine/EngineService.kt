@@ -48,51 +48,59 @@ import android.os.Process
 /**
  * The Engine: runs SANE backends for the app over [IEngine], in its own process (the manifest's
  * android:process). The process lives only while the app binds the Service, so a hung backend or a
- * session left open by an app process that died goes with it.
+ * handle left open by an app process that died goes with it.
  */
 class EngineService : Service() {
-    /** Open sessions by the number the app holds. */
-    private val sessions = HashMap<Int, Long>()
-    private var nextSession = 1
+    /** An open engine_handle; null once closed. Cancel and close take its lock, never the table's. */
+    private class Handle(var pointer: Long?)
+
+    /** Open handles by the number the app holds. */
+    private val handles = HashMap<Int, Handle>()
+    private var nextHandle = 1
 
     private val binder = object : IEngine.Stub() {
-        override fun open(backend: String, device: String, session: IntArray): Int {
+        override fun open(backend: String, device: String, handle: IntArray): Int {
             val pointer = LongArray(1)
             val status = NativeEngine.open(backend, device, pointer)
             if (status == SANE_STATUS_GOOD) {
-                session[0] = synchronized(sessions) { nextSession++.also { sessions[it] = pointer[0] } }
+                handle[0] = synchronized(handles) { nextHandle++.also { handles[it] = Handle(pointer[0]) } }
             }
             return status
         }
 
-        override fun getOptionDescriptors(session: Int): Array<SaneOptionDescriptor> {
-            val pointer = pointer(session)
+        override fun getOptionDescriptors(handle: Int): Array<SaneOptionDescriptor> {
+            val pointer = pointer(handle)
             return Array(NativeEngine.optionCount(pointer)) { option ->
                 SaneOptionDescriptor().also { NativeEngine.optionDescriptor(pointer, option, it) }
             }
         }
 
-        override fun setWordOption(session: Int, option: Int, value: IntArray, info: IntArray): Int =
-            NativeEngine.setWordOption(pointer(session), option, value, info)
+        override fun setWordOption(handle: Int, option: Int, value: IntArray, info: IntArray): Int =
+            NativeEngine.setWordOption(pointer(handle), option, value, info)
 
-        override fun setStringOption(session: Int, option: Int, value: String, info: IntArray): Int =
-            NativeEngine.setStringOption(pointer(session), option, value, info)
+        override fun setStringOption(handle: Int, option: Int, value: String, info: IntArray): Int =
+            NativeEngine.setStringOption(pointer(handle), option, value, info)
 
-        override fun streamPage(session: Int, page: ParcelFileDescriptor): Int =
-            page.use { NativeEngine.streamPage(pointer(session), it.fd) }
+        override fun streamPage(handle: Int, page: ParcelFileDescriptor): Int =
+            page.use { NativeEngine.streamPage(pointer(handle), it.fd) }
 
-        // Under the table's lock, so that a close cannot free the session in between.
-        override fun cancel(session: Int) = synchronized(sessions) {
-            sessions[session]?.let(NativeEngine::cancel) ?: Unit
+        // Under the handle's lock, so that a close cannot free it in between.
+        override fun cancel(handle: Int) {
+            val open = synchronized(handles) { handles[handle] } ?: return
+            synchronized(open) { open.pointer?.let(NativeEngine::cancel) }
         }
 
-        override fun close(session: Int) = synchronized(sessions) {
-            sessions.remove(session)?.let(NativeEngine::close) ?: Unit
+        override fun close(handle: Int) {
+            val open = synchronized(handles) { handles.remove(handle) } ?: return
+            synchronized(open) {
+                open.pointer?.let(NativeEngine::close)
+                open.pointer = null
+            }
         }
     }
 
-    private fun pointer(session: Int): Long =
-        synchronized(sessions) { sessions[session] } ?: throw IllegalArgumentException("No session $session")
+    private fun pointer(handle: Int): Long =
+        synchronized(handles) { handles[handle]?.pointer } ?: throw IllegalArgumentException("No handle $handle")
 
     override fun onBind(intent: Intent): IBinder = binder
 

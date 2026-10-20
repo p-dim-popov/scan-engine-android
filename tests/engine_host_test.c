@@ -38,7 +38,7 @@
    If you do not wish that, delete this exception notice.  */
 
 /* Host test of the Engine core: scans with the SANE test backend through
-   a session and engine_stream_page into a pipe and reads the Page stream back the way the
+   an Engine handle and engine_stream_page into a pipe and reads the Page stream back the way the
    app does.  Run one test by name, or all with no argument.  */
 
 #include <errno.h>
@@ -240,29 +240,31 @@ read_page (void *arg)
   return NULL;
 }
 
-/* ---- test backend session -------------------------------------------------- */
+/* ---- test backend handle --------------------------------------------------- */
 
-static engine_session *session;
+/* The Engine's handle on the test backend's device 0, and the backend and
+   SANE handle under it for direct calls.  */
+static engine_handle *engine;
 static const engine_backend *backend;
 static SANE_Handle handle;
 
 static void
 open_test_scanner (void)
 {
-  if (engine_open ("test", "0", &session) != SANE_STATUS_GOOD)
+  if (engine_open ("test", "0", &engine) != SANE_STATUS_GOOD)
     {
       fprintf (stderr, "cannot open the test backend's device 0\n");
       exit (1);
     }
-  backend = session->backend;
-  handle = session->handle;
+  backend = engine->backend;
+  handle = engine->sane;
 }
 
 static void
 close_test_scanner (void)
 {
   backend->cancel (handle);
-  engine_close (session);
+  engine_close (engine);
 }
 
 static int
@@ -341,7 +343,7 @@ stream_page (page_reader *reader, long long close_after_bytes)
     }
   reader->fd = fds[0];
   pthread_create (&thread, NULL, read_page, reader);
-  status = engine_stream_page (session, fds[1]);
+  status = engine_stream_page (engine, fds[1]);
   close (fds[1]);
   pthread_join (thread, NULL);
   return status;
@@ -580,7 +582,7 @@ cancel_from_another_thread_ends_the_page_promptly (void)
   set_number ("read-delay-duration", 200000);
 
   clock_gettime (CLOCK_MONOTONIC, &start);
-  pthread_create (&canceller, NULL, cancel_after_half_a_second, session);
+  pthread_create (&canceller, NULL, cancel_after_half_a_second, engine);
   CHECK_EQ (stream_page (&r, -1), SANE_STATUS_CANCELLED);
   pthread_join (canceller, NULL);
 

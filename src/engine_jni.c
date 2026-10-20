@@ -57,25 +57,25 @@ JNI_OnLoad (JavaVM *vm, void *reserved)
   return JNI_VERSION_1_6;
 }
 
-static engine_session *
-session_of (jlong pointer)
+static engine_handle *
+handle_of (jlong pointer)
 {
-  return (engine_session *) (intptr_t) pointer;
+  return (engine_handle *) (intptr_t) pointer;
 }
 
 JNIEXPORT jint JNICALL
 JNI (open) (JNIEnv *env, jclass cls, jstring backend, jstring device,
-            jlongArray session)
+            jlongArray handle)
 {
   const char *b = (*env)->GetStringUTFChars (env, backend, NULL);
   const char *d = (*env)->GetStringUTFChars (env, device, NULL);
-  engine_session *s;
-  SANE_Status status = engine_open (b, d, &s);
+  engine_handle *h;
+  SANE_Status status = engine_open (b, d, &h);
   (void) cls;
   if (status == SANE_STATUS_GOOD)
     {
-      jlong pointer = (jlong) (intptr_t) s;
-      (*env)->SetLongArrayRegion (env, session, 0, 1, &pointer);
+      jlong pointer = (jlong) (intptr_t) h;
+      (*env)->SetLongArrayRegion (env, handle, 0, 1, &pointer);
     }
   (*env)->ReleaseStringUTFChars (env, device, d);
   (*env)->ReleaseStringUTFChars (env, backend, b);
@@ -83,12 +83,12 @@ JNI (open) (JNIEnv *env, jclass cls, jstring backend, jstring device,
 }
 
 JNIEXPORT jint JNICALL
-JNI (optionCount) (JNIEnv *env, jclass cls, jlong session)
+JNI (optionCount) (JNIEnv *env, jclass cls, jlong handle)
 {
   SANE_Int count = 0;
   (void) env;
   (void) cls;
-  if (engine_control_option (session_of (session), 0, SANE_ACTION_GET_VALUE,
+  if (engine_control_option (handle_of (handle), 0, SANE_ACTION_GET_VALUE,
                              &count, NULL)
       != SANE_STATUS_GOOD)
     return 0;
@@ -115,11 +115,11 @@ set_int_field (JNIEnv *env, jobject object, jclass c, const char *field,
 }
 
 JNIEXPORT jboolean JNICALL
-JNI (optionDescriptor) (JNIEnv *env, jclass cls, jlong session, jint option,
+JNI (optionDescriptor) (JNIEnv *env, jclass cls, jlong handle, jint option,
                         jobject descriptor)
 {
   const SANE_Option_Descriptor *d =
-    engine_get_option_descriptor (session_of (session), option);
+    engine_get_option_descriptor (handle_of (handle), option);
   jclass c;
   (void) cls;
   if (!d)
@@ -189,11 +189,11 @@ put_info (JNIEnv *env, jintArray info, SANE_Int value)
 }
 
 JNIEXPORT jint JNICALL
-JNI (setWordOption) (JNIEnv *env, jclass cls, jlong session, jint option,
+JNI (setWordOption) (JNIEnv *env, jclass cls, jlong handle, jint option,
                      jintArray value, jintArray info)
 {
-  engine_session *s = session_of (session);
-  const SANE_Option_Descriptor *d = engine_get_option_descriptor (s, option);
+  engine_handle *h = handle_of (handle);
+  const SANE_Option_Descriptor *d = engine_get_option_descriptor (h, option);
   SANE_Int flags = 0;
   SANE_Status status;
   jint *words;
@@ -203,7 +203,7 @@ JNI (setWordOption) (JNIEnv *env, jclass cls, jlong session, jint option,
            < (size_t) d->size)
     return SANE_STATUS_INVAL;
   words = (*env)->GetIntArrayElements (env, value, NULL);
-  status = engine_control_option (s, option, SANE_ACTION_SET_VALUE, words,
+  status = engine_control_option (h, option, SANE_ACTION_SET_VALUE, words,
                                   &flags);
   (*env)->ReleaseIntArrayElements (env, value, words, 0);
   put_info (env, info, flags);
@@ -211,11 +211,11 @@ JNI (setWordOption) (JNIEnv *env, jclass cls, jlong session, jint option,
 }
 
 JNIEXPORT jint JNICALL
-JNI (setStringOption) (JNIEnv *env, jclass cls, jlong session, jint option,
+JNI (setStringOption) (JNIEnv *env, jclass cls, jlong handle, jint option,
                        jstring value, jintArray info)
 {
-  engine_session *s = session_of (session);
-  const SANE_Option_Descriptor *d = engine_get_option_descriptor (s, option);
+  engine_handle *h = handle_of (handle);
+  const SANE_Option_Descriptor *d = engine_get_option_descriptor (h, option);
   SANE_Int flags = 0;
   SANE_Status status;
   const char *v;
@@ -230,7 +230,7 @@ JNI (setStringOption) (JNIEnv *env, jclass cls, jlong session, jint option,
   v = (*env)->GetStringUTFChars (env, value, NULL);
   strncpy (buffer, v, (size_t) d->size - 1);
   (*env)->ReleaseStringUTFChars (env, value, v);
-  status = engine_control_option (s, option, SANE_ACTION_SET_VALUE, buffer,
+  status = engine_control_option (h, option, SANE_ACTION_SET_VALUE, buffer,
                                   &flags);
   free (buffer);
   put_info (env, info, flags);
@@ -238,25 +238,25 @@ JNI (setStringOption) (JNIEnv *env, jclass cls, jlong session, jint option,
 }
 
 JNIEXPORT jint JNICALL
-JNI (streamPage) (JNIEnv *env, jclass cls, jlong session, jint fd)
+JNI (streamPage) (JNIEnv *env, jclass cls, jlong handle, jint fd)
 {
   (void) env;
   (void) cls;
-  return engine_stream_page (session_of (session), fd);
+  return engine_stream_page (handle_of (handle), fd);
 }
 
 JNIEXPORT void JNICALL
-JNI (cancel) (JNIEnv *env, jclass cls, jlong session)
+JNI (cancel) (JNIEnv *env, jclass cls, jlong handle)
 {
   (void) env;
   (void) cls;
-  engine_cancel (session_of (session));
+  engine_cancel (handle_of (handle));
 }
 
 JNIEXPORT void JNICALL
-JNI (close) (JNIEnv *env, jclass cls, jlong session)
+JNI (close) (JNIEnv *env, jclass cls, jlong handle)
 {
   (void) env;
   (void) cls;
-  engine_close (session_of (session));
+  engine_close (handle_of (handle));
 }

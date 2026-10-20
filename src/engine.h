@@ -73,46 +73,50 @@ typedef struct engine_backend
 /* Returns the backend called NAME, or NULL when the build does not link it.  */
 const engine_backend *engine_find_backend (const char *name);
 
-/* A session: one open device of one backend, for one Scan Job.
+/* A handle: one open device of one backend, for one Scan Job, and its read
+   buffer, the only Page data the Engine ever holds.
 
-   One thread at a time calls a session, except engine_cancel, which any
+   One thread at a time calls a handle, except engine_cancel, which any
    thread may call while a Page streams.  Every backend call is made under
    LOCK; engine_stream_page releases it between reads, so a cancel waits for
-   at most one sane_read.  BACKEND and HANDLE are for direct backend calls
+   at most one sane_read.  BACKEND and SANE are for direct backend calls
    while no Page streams.  */
-typedef struct engine_session
+#define ENGINE_READ_BUFFER_SIZE (256 * 1024)
+
+typedef struct engine_handle
 {
   const engine_backend *backend;
-  SANE_Handle handle;
+  SANE_Handle sane;
   pthread_mutex_t lock;
   atomic_int cancelled;
-} engine_session;
+  SANE_Byte buffer[ENGINE_READ_BUFFER_SIZE];
+} engine_handle;
 
 /* Opens DEVICE of the backend called BACKEND.  The backend is initialised on
    its first open and stays initialised for the life of the process.  Returns
    SANE_STATUS_INVAL when the build does not link BACKEND, or the status of
-   sane_open; on SANE_STATUS_GOOD *SESSION is the new session.  */
+   sane_open; on SANE_STATUS_GOOD *HANDLE is the new handle.  */
 SANE_Status engine_open (const char *backend, SANE_String_Const device,
-                         engine_session **session);
+                         engine_handle **handle);
 
-/* sane_get_option_descriptor and sane_control_option on the session.  */
+/* sane_get_option_descriptor and sane_control_option on the handle.  */
 const SANE_Option_Descriptor *
-engine_get_option_descriptor (engine_session *session, SANE_Int option);
-SANE_Status engine_control_option (engine_session *session, SANE_Int option,
+engine_get_option_descriptor (engine_handle *handle, SANE_Int option);
+SANE_Status engine_control_option (engine_handle *handle, SANE_Int option,
                                    SANE_Action action, void *value,
                                    SANE_Int *info);
 
 /* Cancels the Scan Job: calls sane_cancel as soon as the read in progress, if
    any, returns.  From then on engine_stream_page ends every Page at once with
-   SANE_STATUS_CANCELLED; the caller closes the session.  */
-void engine_cancel (engine_session *session);
+   SANE_STATUS_CANCELLED; the caller closes the handle.  */
+void engine_cancel (engine_handle *handle);
 
-/* Closes the device and frees SESSION.  */
-void engine_close (engine_session *session);
+/* Closes the device and frees HANDLE.  */
+void engine_close (engine_handle *handle);
 
 /* The Page stream.
 
-   engine_stream_page scans one Page from an open session and writes it to FD
+   engine_stream_page scans one Page from an open handle and writes it to FD
    as a sequence of records.  Every record starts with a four-byte ASCII tag;
    integers are 32 bits, little-endian.
 
@@ -124,8 +128,8 @@ void engine_close (engine_session *session);
 
    A single-pass Page is HEAD DATA* END.  A three-pass Page repeats HEAD DATA*
    for the red, green and blue frames before END.  Rows pass through
-   unchanged, 16-bit samples included.  The Engine holds one read buffer, never
-   the Page.
+   unchanged, 16-bit samples included.  The Engine holds the handle's read
+   buffer, never the Page.
 
    Returns the status written in END.  On any status other than GOOD the
    backend's scan is cancelled; when FD can no longer be written the END
@@ -135,12 +139,11 @@ void engine_close (engine_session *session);
    engine_cancel stops ends with END SANE_STATUS_CANCELLED.
 
    The caller ignores SIGPIPE, so that a reader closing the pipe surfaces as
-   SANE_STATUS_IO_ERROR instead of killing the process.  One Page streams at
-   a time: the read buffer is shared.  */
+   SANE_STATUS_IO_ERROR instead of killing the process.  */
 #define ENGINE_RECORD_HEAD "HEAD"
 #define ENGINE_RECORD_DATA "DATA"
 #define ENGINE_RECORD_END "END "
 
-SANE_Status engine_stream_page (engine_session *session, int fd);
+SANE_Status engine_stream_page (engine_handle *handle, int fd);
 
 #endif /* ENGINE_H */

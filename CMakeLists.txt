@@ -7,7 +7,7 @@
 #   jpeg         libjpeg-turbo, static (IJG/BSD), built as an external project
 #   sane_engine  the one static library: sanei helpers plus every backend in
 #                ENGINE_BACKENDS, linked through sane_<name>_* entry points
-#   engine       Engine core (backend table, sessions, Page stream); on
+#   engine       Engine core (backend table, handles, Page stream); on
 #                Android libengine.so with the JNI glue, on the host a static
 #                library
 #   engine_host_test  host only: drives the test backend through the Engine core

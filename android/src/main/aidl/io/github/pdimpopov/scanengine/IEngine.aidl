@@ -43,32 +43,32 @@ package io.github.pdimpopov.scanengine;
 
 import io.github.pdimpopov.scanengine.SaneOptionDescriptor;
 
-/** A session is one open device for one Scan Job.  Every call but cancel
+/** A handle is one open device for one Scan Job.  Every call but cancel
     comes from one thread at a time; close comes after streamPage returns.
     Methods that return int return a SANE_Status.  */
 interface IEngine {
     /** Opens DEVICE of the backend called BACKEND.  On SANE_STATUS_GOOD,
-        session[0] is the new session.  */
-    int open(String backend, String device, out int[] session);
+        handle[0] is the new handle.  */
+    int open(String backend, String device, out int[] handle);
 
     /** The descriptors of every option, option 0 (the option count) first.  */
-    SaneOptionDescriptor[] getOptionDescriptors(int session);
+    SaneOptionDescriptor[] getOptionDescriptors(int handle);
 
     /** Sets a bool, int or fixed option, or an array of them.  VALUE holds
         size / 4 words and receives what the backend stored; info[0]
         receives the SANE_INFO flags.  */
-    int setWordOption(int session, int option, inout int[] value, out int[] info);
+    int setWordOption(int handle, int option, inout int[] value, out int[] info);
 
     /** Sets a string option; info[0] receives the SANE_INFO flags.  */
-    int setStringOption(int session, int option, String value, out int[] info);
+    int setStringOption(int handle, int option, String value, out int[] info);
 
     /** Scans one Page into PAGE as a Page stream and closes PAGE.  Blocks
         until the Page ends and returns the status written in END.  */
-    int streamPage(int session, in ParcelFileDescriptor page);
+    int streamPage(int handle, in ParcelFileDescriptor page);
 
     /** Cancels the Scan Job: the Page in progress ends with
         SANE_STATUS_CANCELLED, and so does any later one.  */
-    void cancel(int session);
+    void cancel(int handle);
 
-    void close(int session);
+    void close(int handle);
 }

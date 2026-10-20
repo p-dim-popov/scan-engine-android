@@ -39,29 +39,29 @@
 
 package io.github.pdimpopov.scanengine
 
-/** The Engine core through JNI. A session is an engine_session pointer; status results are SANE_Status. */
+/** The Engine core through JNI. A handle is an engine_handle pointer; status results are SANE_Status. */
 internal object NativeEngine {
     init {
         System.loadLibrary("engine")
     }
 
-    /** engine_open; on SANE_STATUS_GOOD, session[0] is the new session. */
-    @JvmStatic external fun open(backend: String, device: String, session: LongArray): Int
+    /** engine_open; on SANE_STATUS_GOOD, handle[0] is the new handle. */
+    @JvmStatic external fun open(backend: String, device: String, handle: LongArray): Int
 
     /** The number of options, option 0 included. */
-    @JvmStatic external fun optionCount(session: Long): Int
+    @JvmStatic external fun optionCount(handle: Long): Int
 
     /** Copies the descriptor of [option] into [descriptor]; false when the backend has none. */
-    @JvmStatic external fun optionDescriptor(session: Long, option: Int, descriptor: SaneOptionDescriptor): Boolean
+    @JvmStatic external fun optionDescriptor(handle: Long, option: Int, descriptor: SaneOptionDescriptor): Boolean
 
-    @JvmStatic external fun setWordOption(session: Long, option: Int, value: IntArray, info: IntArray): Int
+    @JvmStatic external fun setWordOption(handle: Long, option: Int, value: IntArray, info: IntArray): Int
 
-    @JvmStatic external fun setStringOption(session: Long, option: Int, value: String, info: IntArray): Int
+    @JvmStatic external fun setStringOption(handle: Long, option: Int, value: String, info: IntArray): Int
 
     /** engine_stream_page into [fd], which stays open. */
-    @JvmStatic external fun streamPage(session: Long, fd: Int): Int
+    @JvmStatic external fun streamPage(handle: Long, fd: Int): Int
 
-    @JvmStatic external fun cancel(session: Long)
+    @JvmStatic external fun cancel(handle: Long)
 
-    @JvmStatic external fun close(session: Long)
+    @JvmStatic external fun close(handle: Long)
 }
