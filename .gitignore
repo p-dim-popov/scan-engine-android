@@ -1,0 +1,6 @@
+# CMake host builds
+/build*/
+# Gradle output when the app builds android/
+/android/build/
+/android/.cxx/
+.gradle/

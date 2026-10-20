@@ -1,0 +1,44 @@
+# SANE backends that may enter the Engine's CMake set (ENGINE_BACKENDS).
+#
+# A backend is listed only when every file it compiles carries the SANE
+# exception, it needs no vendor firmware file and it adds no dependency
+# beyond libusb and libjpeg-turbo. Checked against sane-backends 1.4.0.
+# Re-check a backend here on every upstream rebase before it ships: a
+# maintainer can withdraw the exception (genesys did).
+#
+# Never list (no exception): genesys, epson2, epsonds, xerox_mfp,
+# canon_lide70, kodakaio, kvs1025, kvs20xx, kvs40xx, magicolor, hp4200,
+# stv680, coolscan3. Never list (vendor firmware): gt68xx, snapscan.
+# Not wanted (film scanners): pieusb, coolscan2.
+
+# Release-1 set.
+pixma
+avision
+plustek
+epson
+fujitsu
+canon_dr
+hp
+hp3900
+hp5400
+hp5590
+hpljm1005
+lexmark
+epjitsu
+rts8891
+umax1220u
+canon630u
+
+# Eligible but left out of release 1; adding one is one CMake line.
+artec_eplus48u
+cardscan
+ma1509
+mustek
+ricoh2
+sm3600
+sm3840
+u12
+umax
+
+# Debug and host builds only: the virtual scanner the tests drive.
+test

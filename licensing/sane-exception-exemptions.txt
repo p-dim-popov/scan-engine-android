@@ -1,0 +1,6 @@
+# Compiled sane-backends files that may lack the SANE exception, read by
+# scripts/check-sane-exception.sh. Path relative to third_party/sane-backends,
+# then the reason. Only a file under a non-GPL permissive licence belongs
+# here; GPL code without the exception never does.
+
+sanei/sanei_jpeg.c  IJG licence (Independent JPEG Group djpeg code, see README.djpeg), not GPL
