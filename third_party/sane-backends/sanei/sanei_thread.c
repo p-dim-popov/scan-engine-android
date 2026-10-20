@@ -361,6 +361,13 @@ local_thread( void *arg )
 	pthread_exit((void*)&status );
 }
 
+/* SANE_TRUE while SIGPIPE is ignored because sanei_thread_begin() changed
+   it from SIG_DFL. A disposition the caller set is the caller's: the
+   disposition is process-wide, and a caller that ignores SIGPIPE must not
+   lose that after every join.
+ */
+static SANE_Bool sigpipe_ignored_by_begin = SANE_FALSE;
+
 /**
  */
 static void
@@ -368,6 +375,10 @@ restore_sigpipe( void )
 {
 #ifdef SIGPIPE
 	struct sigaction act;
+
+	if( !sigpipe_ignored_by_begin )
+		return;
+	sigpipe_ignored_by_begin = SANE_FALSE;
 
 	if( sigaction( SIGPIPE, NULL, &act ) == 0 ) {
 
@@ -427,7 +438,8 @@ sanei_thread_begin( int (func)(void *args), void* args )
 			act.sa_handler = SIG_IGN;
 
 			DBG( 2, "setting SIGPIPE to SIG_IGN\n" );
-			sigaction( SIGPIPE, &act, NULL );
+			if( sigaction( SIGPIPE, &act, NULL ) == 0 )
+				sigpipe_ignored_by_begin = SANE_TRUE;
 		}
 	}
 #endif
