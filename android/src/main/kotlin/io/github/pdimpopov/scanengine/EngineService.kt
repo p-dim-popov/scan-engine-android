@@ -59,14 +59,12 @@ class EngineService : Service() {
     private var nextHandle = 1
 
     private val binder = object : IEngine.Stub() {
-        override fun open(backend: String, device: String, handle: IntArray): Int {
-            val pointer = LongArray(1)
-            val status = NativeEngine.open(backend, device, pointer)
-            if (status == SANE_STATUS_GOOD) {
-                handle[0] = synchronized(handles) { nextHandle++.also { handles[it] = Handle(pointer[0]) } }
-            }
-            return status
-        }
+        override fun open(backend: String, device: String, handle: IntArray): Int =
+            register(handle) { NativeEngine.open(backend, device, it) }
+
+        // The native handle owns the fd from here on.
+        override fun openUsb(backend: String, usb: ParcelFileDescriptor, handle: IntArray): Int =
+            register(handle) { NativeEngine.openUsb(backend, usb.detachFd(), it) }
 
         override fun getOptionDescriptors(handle: Int): Array<SaneOptionDescriptor> {
             val pointer = pointer(handle)
@@ -97,6 +95,16 @@ class EngineService : Service() {
                 open.pointer = null
             }
         }
+    }
+
+    /** Runs a native open into a new handle; on SANE_STATUS_GOOD, handle[0] is its number. */
+    private fun register(handle: IntArray, open: (pointer: LongArray) -> Int): Int {
+        val pointer = LongArray(1)
+        val status = open(pointer)
+        if (status == SANE_STATUS_GOOD) {
+            handle[0] = synchronized(handles) { nextHandle++.also { handles[it] = Handle(pointer[0]) } }
+        }
+        return status
     }
 
     private fun pointer(handle: Int): Long =

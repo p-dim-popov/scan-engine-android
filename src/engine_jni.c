@@ -83,6 +83,23 @@ JNI (open) (JNIEnv *env, jclass cls, jstring backend, jstring device,
 }
 
 JNIEXPORT jint JNICALL
+JNI (openUsb) (JNIEnv *env, jclass cls, jstring backend, jint fd,
+               jlongArray handle)
+{
+  const char *b = (*env)->GetStringUTFChars (env, backend, NULL);
+  engine_handle *h;
+  SANE_Status status = engine_open_usb (b, fd, &h);
+  (void) cls;
+  if (status == SANE_STATUS_GOOD)
+    {
+      jlong pointer = (jlong) (intptr_t) h;
+      (*env)->SetLongArrayRegion (env, handle, 0, 1, &pointer);
+    }
+  (*env)->ReleaseStringUTFChars (env, backend, b);
+  return status;
+}
+
+JNIEXPORT jint JNICALL
 JNI (optionCount) (JNIEnv *env, jclass cls, jlong handle)
 {
   SANE_Int count = 0;

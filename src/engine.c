@@ -44,6 +44,7 @@
 #include <unistd.h>
 
 #include "engine.h"
+#include "sane/sanei_usb.h"
 
 /* Declare every linked backend's entry points ...  */
 #define ENGINE_BACKEND(name)                                                \
@@ -96,33 +97,35 @@ engine_find_backend (const char *name)
 
 /* ---- handles ---------------------------------------------------------------- */
 
-/* Which backends sane_init has run for, under init_lock.  */
+/* Which backends sane_init has run for, and whether a USB handle is open,
+   under backend_lock.  sanei_usb's Android fd, and the device list rescans
+   that follow a change of it, change only under it too.  */
 static int initialised[sizeof backends / sizeof backends[0]];
-static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
+static int usb_open;
+static pthread_mutex_t backend_lock = PTHREAD_MUTEX_INITIALIZER;
 
-SANE_Status
-engine_open (const char *backend_name, SANE_String_Const device,
-             engine_handle **handle)
+/* Initialises BACKEND on its first use, under backend_lock.  */
+static SANE_Status
+init_backend (const engine_backend *backend)
 {
-  const engine_backend *backend = engine_find_backend (backend_name);
-  engine_handle *h;
-  SANE_Handle sane;
   SANE_Status status = SANE_STATUS_GOOD;
   SANE_Int version;
-
-  if (!backend)
-    return SANE_STATUS_INVAL;
-  pthread_mutex_lock (&init_lock);
   if (!initialised[backend - backends])
     {
       status = backend->init (&version, NULL);
       initialised[backend - backends] = status == SANE_STATUS_GOOD;
     }
-  pthread_mutex_unlock (&init_lock);
-  if (status != SANE_STATUS_GOOD)
-    return status;
+  return status;
+}
 
-  status = backend->open (device, &sane);
+/* Opens DEVICE of BACKEND, initialised, into a new handle on USB_FD.  */
+static SANE_Status
+open_handle (const engine_backend *backend, SANE_String_Const device,
+             int usb_fd, engine_handle **handle)
+{
+  engine_handle *h;
+  SANE_Handle sane;
+  SANE_Status status = backend->open (device, &sane);
   if (status != SANE_STATUS_GOOD)
     return status;
   h = calloc (1, sizeof *h);
@@ -133,10 +136,70 @@ engine_open (const char *backend_name, SANE_String_Const device,
     }
   h->backend = backend;
   h->sane = sane;
+  h->usb_fd = usb_fd;
   pthread_mutex_init (&h->lock, NULL);
   atomic_init (&h->cancelled, 0);
   *handle = h;
   return SANE_STATUS_GOOD;
+}
+
+SANE_Status
+engine_open (const char *backend_name, SANE_String_Const device,
+             engine_handle **handle)
+{
+  const engine_backend *backend = engine_find_backend (backend_name);
+  SANE_Status status;
+
+  if (!backend)
+    return SANE_STATUS_INVAL;
+  pthread_mutex_lock (&backend_lock);
+  status = init_backend (backend);
+  pthread_mutex_unlock (&backend_lock);
+  if (status != SANE_STATUS_GOOD)
+    return status;
+  return open_handle (backend, device, -1, handle);
+}
+
+SANE_Status
+engine_open_usb (const char *backend_name, int fd, engine_handle **handle)
+{
+  const engine_backend *backend = engine_find_backend (backend_name);
+  const SANE_Device **devices;
+  SANE_Status status;
+
+  if (fd < 0)
+    return SANE_STATUS_INVAL;
+  if (!backend)
+    {
+      close (fd);
+      return SANE_STATUS_INVAL;
+    }
+  pthread_mutex_lock (&backend_lock);
+  if (usb_open)
+    status = SANE_STATUS_DEVICE_BUSY;
+  else
+    {
+      /* A backend initialised before lists the new device after a
+         rescan.  */
+      sanei_usb_set_android_fd (fd);
+      if (initialised[backend - backends])
+        sanei_usb_scan_devices ();
+      status = init_backend (backend);
+      if (status == SANE_STATUS_GOOD)
+        status = backend->get_devices (&devices, SANE_TRUE);
+      if (status == SANE_STATUS_GOOD)
+        status = devices && devices[0]
+                   ? open_handle (backend, devices[0]->name, fd, handle)
+                   : SANE_STATUS_INVAL;
+      if (status == SANE_STATUS_GOOD)
+        usb_open = 1;
+      else
+        sanei_usb_set_android_fd (-1);
+    }
+  pthread_mutex_unlock (&backend_lock);
+  if (status != SANE_STATUS_GOOD)
+    close (fd);
+  return status;
 }
 
 const SANE_Option_Descriptor *
@@ -177,6 +240,14 @@ engine_close (engine_handle *h)
   pthread_mutex_lock (&h->lock);
   h->backend->close (h->sane);
   pthread_mutex_unlock (&h->lock);
+  if (h->usb_fd >= 0)
+    {
+      pthread_mutex_lock (&backend_lock);
+      sanei_usb_set_android_fd (-1);
+      close (h->usb_fd);
+      usb_open = 0;
+      pthread_mutex_unlock (&backend_lock);
+    }
   pthread_mutex_destroy (&h->lock);
   free (h);
 }
