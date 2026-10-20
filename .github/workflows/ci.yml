@@ -10,12 +10,17 @@ on:
 jobs:
   host:
     runs-on: ubuntu-latest
+    # A run takes under a minute; a hang fails here, not at the 6-hour job limit.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
-      # Installs the CMake and Ninja versions pinned in mise.toml. Each step below
-      # is a mise task from mise.toml; `mise run ci` runs the same steps locally.
+      # Installs the tool versions pinned in mise.toml. Each step below is a mise
+      # task from mise.toml; `mise run ci` runs the same steps locally.
       - uses: jdx/mise-action@v5
+
+      - name: Lint the scripts and this workflow
+        run: mise run lint
 
       # Configuring fails when ENGINE_BACKENDS names a backend outside
       # licensing/backend-allowlist.txt.

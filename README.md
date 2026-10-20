@@ -30,7 +30,7 @@ The backends link statically into one library, `sane_engine`, through their `san
 
 On Android, `android/` is an Android library module. The consuming app adds this repository as a git submodule and includes `android/` as a Gradle project, so the Android Gradle plugin, NDK and CMake build it as part of the app build. The ABIs are arm64-v8a and x86_64.
 
-On the Linux host, it builds as a static library and a test executable. `mise.toml` pins CMake and Ninja and defines a mise task for each step: `mise tasks` lists them, and `mise run <name>` runs one with the pinned tools on the PATH. A mise task runs the ones it needs first, so `mise run test` also configures and builds. `mise run ci` runs the same steps as CI, in the same order.
+On the Linux host, it builds as a static library and a test executable. `mise.toml` pins CMake, Ninja, shellcheck and actionlint and defines a mise task for each step: `mise tasks` lists them, and `mise run <name>` runs one with the pinned tools on the PATH. A mise task runs the ones it needs first, so `mise run test` also configures and builds. `mise run lint` runs shellcheck on `scripts/` and actionlint on the CI workflow; any finding fails it. `mise run ci` runs the same steps as CI, in the same order.
 
 The host build also needs a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
 
@@ -70,6 +70,6 @@ The first commit imports the three upstream trees unchanged, so `git log -p thir
 The Engine is consumed by a proprietary Android app as the git submodule `engine/`, built in the app's Gradle build. A change reaches the app in this order:
 
 1. Change, build and test it here, on a branch of this repository, and get it onto `main` here.
-2. Move the app's submodule pointer to that commit, in the app repository.
+2. Move the app's submodule pointer to that commit, in the app repository. This repository squash-merges pull requests, so the commit is the squashed one on `main`, not the branch commit.
 
 Every new source file starts with the notice in `src/engine.h`: GPL-2.0-or-later with the SANE exception and a copyright line. Build scripts carry the one-line notice used in `CMakeLists.txt`. This repository is public: its commits, comments and docs name no product or company.
