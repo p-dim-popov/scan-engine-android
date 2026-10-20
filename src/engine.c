@@ -1,7 +1,7 @@
 /* scan-engine-android
    Copyright (C) 2026 Petar Popov
 
-   Engine core: backend table and Page stream.
+   Engine core: backend table, sessions and Page stream.
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -39,6 +39,7 @@
 
 #include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -91,6 +92,93 @@ engine_find_backend (const char *name)
     if (strcmp (backends[i].name, name) == 0)
       return &backends[i];
   return NULL;
+}
+
+/* ---- sessions --------------------------------------------------------------- */
+
+/* Which backends sane_init has run for, under init_lock.  */
+static int initialised[sizeof backends / sizeof backends[0]];
+static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
+
+SANE_Status
+engine_open (const char *backend_name, SANE_String_Const device,
+             engine_session **session)
+{
+  const engine_backend *backend = engine_find_backend (backend_name);
+  engine_session *s;
+  SANE_Handle handle;
+  SANE_Status status = SANE_STATUS_GOOD;
+  SANE_Int version;
+
+  if (!backend)
+    return SANE_STATUS_INVAL;
+  pthread_mutex_lock (&init_lock);
+  if (!initialised[backend - backends])
+    {
+      status = backend->init (&version, NULL);
+      initialised[backend - backends] = status == SANE_STATUS_GOOD;
+    }
+  pthread_mutex_unlock (&init_lock);
+  if (status != SANE_STATUS_GOOD)
+    return status;
+
+  status = backend->open (device, &handle);
+  if (status != SANE_STATUS_GOOD)
+    return status;
+  s = calloc (1, sizeof *s);
+  if (!s)
+    {
+      backend->close (handle);
+      return SANE_STATUS_NO_MEM;
+    }
+  s->backend = backend;
+  s->handle = handle;
+  pthread_mutex_init (&s->lock, NULL);
+  atomic_init (&s->cancelled, 0);
+  *session = s;
+  return SANE_STATUS_GOOD;
+}
+
+const SANE_Option_Descriptor *
+engine_get_option_descriptor (engine_session *s, SANE_Int option)
+{
+  const SANE_Option_Descriptor *descriptor;
+  pthread_mutex_lock (&s->lock);
+  descriptor = s->backend->get_option_descriptor (s->handle, option);
+  pthread_mutex_unlock (&s->lock);
+  return descriptor;
+}
+
+SANE_Status
+engine_control_option (engine_session *s, SANE_Int option, SANE_Action action,
+                       void *value, SANE_Int *info)
+{
+  SANE_Status status;
+  pthread_mutex_lock (&s->lock);
+  status = s->backend->control_option (s->handle, option, action, value, info);
+  pthread_mutex_unlock (&s->lock);
+  return status;
+}
+
+void
+engine_cancel (engine_session *s)
+{
+  /* Set first: the streaming thread then makes no further backend call
+     once it releases the lock.  */
+  atomic_store (&s->cancelled, 1);
+  pthread_mutex_lock (&s->lock);
+  s->backend->cancel (s->handle);
+  pthread_mutex_unlock (&s->lock);
+}
+
+void
+engine_close (engine_session *s)
+{
+  pthread_mutex_lock (&s->lock);
+  s->backend->close (s->handle);
+  pthread_mutex_unlock (&s->lock);
+  pthread_mutex_destroy (&s->lock);
+  free (s);
 }
 
 /* ---- Page stream ------------------------------------------------------------ */
@@ -160,10 +248,23 @@ write_end (int fd, SANE_Status status)
   return write_all (fd, record, sizeof record);
 }
 
+/* Sets STATUS to the result of CALL, made under the session lock, or to
+   SANE_STATUS_CANCELLED without making it once the Scan Job is cancelled.  */
+#define LOCKED_CALL(s, status, call)                                        \
+  do                                                                        \
+    {                                                                       \
+      pthread_mutex_lock (&(s)->lock);                                      \
+      status = atomic_load (&(s)->cancelled) ? SANE_STATUS_CANCELLED       \
+                                             : (call);                      \
+      pthread_mutex_unlock (&(s)->lock);                                    \
+    }                                                                       \
+  while (0)
+
 SANE_Status
-engine_stream_page (const engine_backend *backend, SANE_Handle handle, int fd)
+engine_stream_page (engine_session *s, int fd)
 {
   static SANE_Byte buffer[READ_BUFFER_SIZE];
+  const engine_backend *backend = s->backend;
   SANE_Parameters params;
   SANE_Status status;
   SANE_Int length;
@@ -171,14 +272,15 @@ engine_stream_page (const engine_backend *backend, SANE_Handle handle, int fd)
 
   do
     {
-      status = backend->start (handle);
+      LOCKED_CALL (s, status, backend->start (s->handle));
       if (status == SANE_STATUS_GOOD)
-        status = backend->get_parameters (handle, &params);
+        LOCKED_CALL (s, status, backend->get_parameters (s->handle, &params));
       if (status == SANE_STATUS_GOOD)
         writable = write_head (fd, &params);
       while (writable && status == SANE_STATUS_GOOD)
         {
-          status = backend->read (handle, buffer, sizeof buffer, &length);
+          LOCKED_CALL (s, status, backend->read (s->handle, buffer,
+                                                 sizeof buffer, &length));
           if (status == SANE_STATUS_GOOD && length > 0)
             writable = write_data (fd, buffer, length);
         }
@@ -192,6 +294,10 @@ engine_stream_page (const engine_backend *backend, SANE_Handle handle, int fd)
   if (!writable)
     status = SANE_STATUS_IO_ERROR;
   if (status != SANE_STATUS_GOOD)
-    backend->cancel (handle);
+    {
+      pthread_mutex_lock (&s->lock);
+      backend->cancel (s->handle);
+      pthread_mutex_unlock (&s->lock);
+    }
   return status;
 }

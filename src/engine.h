@@ -42,6 +42,9 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
+#include <pthread.h>
+#include <stdatomic.h>
+
 #include "sane/sane.h"
 
 /* One SANE backend linked into the Engine, reached through its
@@ -70,9 +73,46 @@ typedef struct engine_backend
 /* Returns the backend called NAME, or NULL when the build does not link it.  */
 const engine_backend *engine_find_backend (const char *name);
 
+/* A session: one open device of one backend, for one Scan Job.
+
+   One thread at a time calls a session, except engine_cancel, which any
+   thread may call while a Page streams.  Every backend call is made under
+   LOCK; engine_stream_page releases it between reads, so a cancel waits for
+   at most one sane_read.  BACKEND and HANDLE are for direct backend calls
+   while no Page streams.  */
+typedef struct engine_session
+{
+  const engine_backend *backend;
+  SANE_Handle handle;
+  pthread_mutex_t lock;
+  atomic_int cancelled;
+} engine_session;
+
+/* Opens DEVICE of the backend called BACKEND.  The backend is initialised on
+   its first open and stays initialised for the life of the process.  Returns
+   SANE_STATUS_INVAL when the build does not link BACKEND, or the status of
+   sane_open; on SANE_STATUS_GOOD *SESSION is the new session.  */
+SANE_Status engine_open (const char *backend, SANE_String_Const device,
+                         engine_session **session);
+
+/* sane_get_option_descriptor and sane_control_option on the session.  */
+const SANE_Option_Descriptor *
+engine_get_option_descriptor (engine_session *session, SANE_Int option);
+SANE_Status engine_control_option (engine_session *session, SANE_Int option,
+                                   SANE_Action action, void *value,
+                                   SANE_Int *info);
+
+/* Cancels the Scan Job: calls sane_cancel as soon as the read in progress, if
+   any, returns.  From then on engine_stream_page ends every Page at once with
+   SANE_STATUS_CANCELLED; the caller closes the session.  */
+void engine_cancel (engine_session *session);
+
+/* Closes the device and frees SESSION.  */
+void engine_close (engine_session *session);
+
 /* The Page stream.
 
-   engine_stream_page scans one Page from an open handle and writes it to FD
+   engine_stream_page scans one Page from an open session and writes it to FD
    as a sequence of records.  Every record starts with a four-byte ASCII tag;
    integers are 32 bits, little-endian.
 
@@ -91,7 +131,8 @@ const engine_backend *engine_find_backend (const char *name);
    backend's scan is cancelled; when FD can no longer be written the END
    record is not written and the result is SANE_STATUS_IO_ERROR.  After a
    GOOD Page the scan stays open, so a feeder can deliver the next Page with
-   another call; the caller cancels when the Scan Job ends.
+   another call; the caller cancels when the Scan Job ends.  A Page that
+   engine_cancel stops ends with END SANE_STATUS_CANCELLED.
 
    The caller ignores SIGPIPE, so that a reader closing the pipe surfaces as
    SANE_STATUS_IO_ERROR instead of killing the process.  One Page streams at
@@ -100,7 +141,6 @@ const engine_backend *engine_find_backend (const char *name);
 #define ENGINE_RECORD_DATA "DATA"
 #define ENGINE_RECORD_END "END "
 
-SANE_Status engine_stream_page (const engine_backend *backend,
-                                SANE_Handle handle, int fd);
+SANE_Status engine_stream_page (engine_session *session, int fd);
 
 #endif /* ENGINE_H */
