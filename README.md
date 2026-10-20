@@ -36,7 +36,7 @@ The host build also needs a C compiler and Python 3. Python 3 generates pixma's 
 
 ## Tests
 
-`tests/engine_host_test.c` scans with the SANE `test` backend through the Engine core into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, and memory that stays bounded for a 134 MB Page. Every test has a 60 s CTest timeout, so a hang fails the run.
+`tests/engine_host_test.c` scans with the SANE `test` backend through the Engine core into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, and memory that stays bounded for a 134 MB Page. SIGPIPE stays ignored after a Page ends, fails or is cancelled, so a reader that closes the pipe after a backend has joined its reader thread is still a write error. Every test has a 60 s CTest timeout, so a hang fails the run.
 
 ## Licence guards
 
@@ -57,7 +57,8 @@ The first commit imports the three upstream trees unchanged, so `git log -p thir
 3. `sanei/sanei_init_debug.c`: on Android, debug output goes to logcat.
 4. `sanei/sanei_thread.c`: bionic has no `pthread_cancel`; Android uses the existing macOS path (`SIGUSR2` and `pthread_kill`).
 5. `backend/test.c`: in thread mode, `finish_pass` no longer cancels the reader thread. It closes the pipe, so the reader's next write fails and the thread ends, and then joins it. The reader blocks SIGPIPE and frees its buffer on that path. `sanei_thread_kill` cancels a thread asynchronously on Linux (`SIGUSR2` and `pthread_exit` on Android), and a cancel in the reader's first `malloc` left the join waiting for ever in about 1 newly started process in 10. pixma already stops its reader this way.
-6. Build: CMake instead of autotools. pixma's generated option tables are made at build time.
+6. `sanei/sanei_thread.c`: in thread mode, `sanei_thread_waitpid` sets SIGPIPE back to `SIG_DFL` only when `sanei_thread_begin` changed it from `SIG_DFL` to `SIG_IGN`. Upstream reset any ignored SIGPIPE after every join, for the whole process, so the Engine lost its own `SIG_IGN` after each Page. An app that closed the pipe before the Page's last rows or its END record then killed the Engine instead of ending the Page with a write error.
+7. Build: CMake instead of autotools. pixma's generated option tables are made at build time.
 
 ## Updating upstream
 

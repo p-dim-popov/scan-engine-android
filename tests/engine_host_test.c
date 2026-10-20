@@ -55,6 +55,7 @@
 
 #include "engine.h"
 #include "sane/saneopts.h"
+#include "sane/sanei_thread.h"
 
 static int failures;
 
@@ -97,7 +98,7 @@ typedef struct
 typedef struct
 {
   int fd;
-  long long close_after_bytes; /* < 0: read to the end */
+  long long close_after_bytes; /* < 0: read to the end; 0: close after HEAD */
   frame frames[MAX_FRAMES];
   int frame_count;
   int end_seen;
@@ -181,6 +182,11 @@ read_page (void *arg)
           p->pixels_per_line = v[3];
           p->lines = v[4];
           p->depth = v[5];
+          if (r->close_after_bytes == 0)
+            {
+              close (r->fd);
+              return NULL;
+            }
         }
       else if (memcmp (tag, ENGINE_RECORD_DATA, 4) == 0)
         {
@@ -543,6 +549,109 @@ app_closing_the_pipe_cancels_the_page (void)
   close_test_scanner ();
 }
 
+static int
+sigpipe_is_ignored (void)
+{
+  struct sigaction act;
+  return sigaction (SIGPIPE, NULL, &act) == 0 && act.sa_handler == SIG_IGN;
+}
+
+/* The Engine ignores SIGPIPE once for the whole process; a backend joining
+   its reader thread must not undo that.  */
+static void
+sigpipe_stays_ignored_after_every_kind_of_page_end (void)
+{
+  page_reader r;
+  open_test_scanner ();
+  set_100_pixel_square ();
+
+  CHECK_EQ (stream_page (&r, -1), SANE_STATUS_GOOD);
+  CHECK (sigpipe_is_ignored ());
+
+  set_string ("read-return-value", "SANE_STATUS_JAMMED");
+  CHECK_EQ (stream_page (&r, -1), SANE_STATUS_JAMMED);
+  CHECK (sigpipe_is_ignored ());
+  set_string ("read-return-value", "Default");
+
+  /* 2000 x 2000 pixels: the app closes the pipe while the reader runs.  */
+  set_number (SANE_NAME_SCAN_BR_X, 200);
+  set_number (SANE_NAME_SCAN_BR_Y, 200);
+  CHECK_EQ (stream_page (&r, 1), SANE_STATUS_IO_ERROR);
+  CHECK (sigpipe_is_ignored ());
+
+  /* A Scan Job cancelled in the middle of a Page, while the reader runs.  */
+  {
+    static SANE_Byte buf[1024];
+    SANE_Int length;
+    CHECK_EQ (backend->start (handle), SANE_STATUS_GOOD);
+    CHECK_EQ (backend->read (handle, buf, sizeof buf, &length),
+              SANE_STATUS_GOOD);
+    backend->cancel (handle);
+    CHECK (sigpipe_is_ignored ());
+  }
+  close_test_scanner ();
+}
+
+static int
+pixma_style_reader (void *stop)
+{
+  while (!*(volatile SANE_Bool *) stop)
+    usleep (1000);
+  return SANE_STATUS_GOOD;
+}
+
+/* pixma starts its reader with sanei_thread_begin, stops it with a flag and
+   joins it with sanei_thread_waitpid.  No scanner is needed for that path.  */
+static void
+sigpipe_stays_ignored_after_a_pixma_style_reader_is_joined (void)
+{
+  SANE_Bool stop = SANE_FALSE;
+  SANE_Pid pid;
+  int status = -1;
+
+  sanei_thread_init ();
+  pid = sanei_thread_begin (pixma_style_reader, &stop);
+  CHECK (sanei_thread_is_valid (pid));
+  stop = SANE_TRUE;
+  CHECK (sanei_thread_is_valid (sanei_thread_waitpid (pid, &status)));
+  CHECK_EQ (status, SANE_STATUS_GOOD);
+  CHECK (sigpipe_is_ignored ());
+}
+
+/* The backend joins its reader when it hands over the last rows, before the
+   Engine writes them and END.  An app that closes the pipe then must give a
+   write error on any Page, not only the first.  The run is in a child
+   process, so a SIGPIPE death shows as a failure instead of ending the
+   test program.  */
+static void
+app_closing_the_pipe_on_a_later_page_is_a_write_error (void)
+{
+  int wstatus = 0;
+  pid_t child;
+  fflush (NULL);
+  child = fork ();
+  if (child == 0)
+    {
+      page_reader r;
+      open_test_scanner ();
+      set_100_pixel_square ();
+      CHECK_EQ (stream_page (&r, -1), SANE_STATUS_GOOD);
+
+      /* The reader holds back the rows for 200 ms, so the app has closed
+         the pipe after HEAD before the Engine writes them.  */
+      set_bool ("read-delay", SANE_TRUE);
+      set_number ("read-delay-duration", 200000);
+      CHECK_EQ (stream_page (&r, 0), SANE_STATUS_IO_ERROR);
+      CHECK (!r.end_seen);
+      close_test_scanner ();
+      _exit (failures ? 1 : 0);
+    }
+  CHECK (child > 0 && waitpid (child, &wstatus, 0) == child);
+  if (WIFSIGNALED (wstatus))
+    fprintf (stderr, "the Engine died of signal %d\n", WTERMSIG (wstatus));
+  CHECK (WIFEXITED (wstatus) && WEXITSTATUS (wstatus) == 0);
+}
+
 static long
 max_rss_kb (void)
 {
@@ -613,6 +722,12 @@ static const struct
     backend_error_right_after_start_never_hangs },
   { "app_closing_the_pipe_cancels_the_page",
     app_closing_the_pipe_cancels_the_page },
+  { "sigpipe_stays_ignored_after_every_kind_of_page_end",
+    sigpipe_stays_ignored_after_every_kind_of_page_end },
+  { "sigpipe_stays_ignored_after_a_pixma_style_reader_is_joined",
+    sigpipe_stays_ignored_after_a_pixma_style_reader_is_joined },
+  { "app_closing_the_pipe_on_a_later_page_is_a_write_error",
+    app_closing_the_pipe_on_a_later_page_is_a_write_error },
   { "large_page_streams_in_bounded_memory",
     large_page_streams_in_bounded_memory },
   { "linked_backends_are_found_by_name",
