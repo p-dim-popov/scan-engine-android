@@ -35,3 +35,10 @@ add_test(NAME exception_guard_rejects_compiled_files_without_the_exception
   COMMAND ${CMAKE_COMMAND} -DGUARD=${PROJECT_SOURCE_DIR}/scripts/check-sane-exception.sh
           -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/exception-guard -DNINJA=${CMAKE_MAKE_PROGRAM}
           -P ${CMAKE_CURRENT_SOURCE_DIR}/guards/SaneExceptionGuardTest.cmake)
+
+# check-licence-notices.sh fails on an Engine source file outside third_party/
+# without the exception.
+add_test(NAME notice_guard_rejects_engine_sources_without_the_exception
+  COMMAND ${CMAKE_COMMAND} -DGUARD=${PROJECT_SOURCE_DIR}/scripts/check-licence-notices.sh
+          -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/notice-guard
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/guards/LicenceNoticeGuardTest.cmake)

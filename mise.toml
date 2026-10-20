@@ -1,0 +1,4 @@
+# Host build tools. The Android build uses the SDK's CMake through Gradle.
+[tools]
+cmake = "4.4.4"
+ninja = "1.13.2"
