@@ -33,13 +33,14 @@ On Android, `android/` is an Android library module. The consuming app adds this
 On the Linux host, it builds as a static library and a test executable:
 
 ```sh
-cmake -S . -B build -G Ninja
-cmake --build build
-ctest --test-dir build --output-on-failure
-scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt
+mise x -- cmake -S . -B build -G Ninja
+mise x -- cmake --build build
+mise x -- ctest --test-dir build --output-on-failure
+mise x -- scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt
+scripts/check-licence-notices.sh
 ```
 
-The host build needs CMake 3.22 or later, Ninja, a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
+`mise.toml` pins CMake and Ninja; `mise x --` runs a command with them on the PATH. The host build also needs a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
 
 ## Tests
 
@@ -50,9 +51,10 @@ The host build needs CMake 3.22 or later, Ninja, a C compiler and Python 3. Pyth
 CI fails when:
 
 - `ENGINE_BACKENDS` names a backend that is not in `licensing/backend-allowlist.txt`. The check runs when CMake configures the build.
-- A compiled file under `sane-backends/backend` or `sane-backends/sanei` does not contain the SANE exception text. This includes every header and `#include`d `.c` file, read from Ninja's dependency log. A file is exempt only when it is under a non-GPL permissive licence and is listed in `licensing/sane-exception-exemptions.txt` with the reason.
+- An Engine source file (`.c`, `.h`, `.in`, `.kt`, `.java` or `.aidl` outside `third_party/`) does not contain the SANE exception text: `scripts/check-licence-notices.sh`.
+- A compiled file under `sane-backends/backend` or `sane-backends/sanei` does not contain the SANE exception text: `scripts/check-sane-exception.sh`. This includes every header and `#include`d `.c` file, read from Ninja's dependency log. A file is exempt only when it is under a non-GPL permissive licence and is listed in `licensing/sane-exception-exemptions.txt` with the reason.
 
-One exception-free GPL file in the Engine process would put the whole process under the plain GPL. Run both guards again after every upstream rebase: a maintainer can withdraw the exception.
+One exception-free GPL file in the Engine process would put the whole process under the plain GPL. Run the guards again after every upstream rebase: a maintainer can withdraw the exception.
 
 ## Changes to sane-backends 1.4.0
 
@@ -66,4 +68,15 @@ The first commit imports the three upstream trees unchanged, so `git log -p thir
 
 ## Updating upstream
 
-Replace a `third_party/` tree with the new release in one commit. Then reapply the changes above, build, and run the tests and both guards.
+1. `scripts/import-upstream.sh <name> <unpacked release>` replaces `third_party/<name>` and stages it. A plain `git add` drops the files that upstream's own `.gitignore` files match; the script adds them all and fails if any is missing.
+2. Commit the import alone.
+3. Reapply the changes above, build, and run the tests and the guards.
+
+## Working on the Engine
+
+The Engine is consumed by a proprietary Android app as the git submodule `engine/`, built in the app's Gradle build. A change reaches the app in this order:
+
+1. Change, build and test it here, on a branch of this repository, and get it onto `main` here.
+2. Move the app's submodule pointer to that commit, in the app repository.
+
+Every new source file starts with the notice in `src/engine.h`: GPL-2.0-or-later with the SANE exception and a copyright line. Build scripts carry the one-line notice used in `CMakeLists.txt`. This repository is public: its commits, comments and docs name no product or company.

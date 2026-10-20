@@ -13,8 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      # Installs the CMake and Ninja versions pinned in mise.toml.
+      - uses: jdx/mise-action@v5
 
       # Configuring fails when ENGINE_BACKENDS names a backend outside
       # licensing/backend-allowlist.txt.
@@ -27,5 +27,8 @@ jobs:
       - name: Host tests (test backend scans, Page stream, guard self-tests)
         run: ctest --test-dir build --output-on-failure
 
-      - name: SANE exception guard
+      - name: SANE exception guard (compiled sane-backends files)
         run: scripts/check-sane-exception.sh build third_party/sane-backends licensing/sane-exception-exemptions.txt
+
+      - name: Licence notice guard (Engine sources)
+        run: scripts/check-licence-notices.sh
