@@ -16,6 +16,7 @@ foreach(name
     backend_error_ends_the_page_with_its_status
     backend_error_right_after_start_never_hangs
     app_closing_the_pipe_cancels_the_page
+    cancel_from_another_thread_ends_the_page_promptly
     sigpipe_stays_ignored_after_every_kind_of_page_end
     sigpipe_stays_ignored_after_a_pixma_style_reader_is_joined
     app_closing_the_pipe_on_a_later_page_is_a_write_error

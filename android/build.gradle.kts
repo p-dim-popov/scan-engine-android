@@ -31,6 +31,11 @@ android {
         }
     }
 
+    buildFeatures {
+        // IEngine.aidl, the binder contract between the app and the Engine's Service.
+        aidl = true
+    }
+
     buildTypes {
         release {
             externalNativeBuild {

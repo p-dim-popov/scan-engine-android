@@ -18,9 +18,9 @@ GPL-2.0-or-later, with the SANE exception kept in every modified and new source 
 
 - `CMakeLists.txt`: one build for Android and the Linux host.
 - `cmake/Backends.cmake`: `ENGINE_BACKENDS`, the backends linked into the Engine, with each backend's source list.
-- `src/`: Engine core: the table of linked backends and the Page stream (`engine.h` documents the wire format).
+- `src/`: Engine core: the table of linked backends, handles and the Page stream (`engine.h` documents them and the wire format); `engine_jni.c`, the JNI glue of the Android Service.
 - `tests/`: host tests, run by CTest.
-- `android/`: Android library module that builds `libengine.so`.
+- `android/`: Android library module: `libengine.so`, the binder contract `IEngine.aidl` and `EngineService`, the bound Service that runs the Engine in its own process.
 - `licensing/`: the backend allow-list and the exception-guard exemptions.
 - `scripts/check-sane-exception.sh`: the exception guard.
 
@@ -30,13 +30,15 @@ The backends link statically into one library, `sane_engine`, through their `san
 
 On Android, `android/` is an Android library module. The consuming app adds this repository as a git submodule and includes `android/` as a Gradle project, so the Android Gradle plugin, NDK and CMake build it as part of the app build. The ABIs are arm64-v8a and x86_64.
 
+The module's manifest declares `EngineService` in the process `:engine`, not exported. The app binds it and calls it through `IEngine.aidl`, which carries SANE shapes only: status codes, option descriptors and values, and the file descriptor of each Page stream. A handle is one open device for one Scan Job; `streamPage` blocks until the Page ends, and `cancel`, a separate call from another thread, calls `sane_cancel` once the read in progress returns. The Engine's process ends when the app unbinds the Service, so a hung backend or a handle left open by an app that died goes with it.
+
 On the Linux host, it builds as a static library and a test executable. `mise.toml` pins CMake, Ninja, shellcheck and actionlint and defines a mise task for each step: `mise tasks` lists them, and `mise run <name>` runs one with the pinned tools on the PATH. A mise task runs the ones it needs first, so `mise run test` also configures and builds. `mise run lint` runs shellcheck on `scripts/` and actionlint on the CI workflow; any finding fails it. `mise run ci` runs the same steps as CI, in the same order.
 
 The host build also needs a C compiler and Python 3. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does.
 
 ## Tests
 
-`tests/engine_host_test.c` scans with the SANE `test` backend through the Engine core into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, and memory that stays bounded for a 134 MB Page. SIGPIPE stays ignored after a Page ends, fails or is cancelled, so a reader that closes the pipe after a backend has joined its reader thread is still a write error. Every test has a 60 s CTest timeout, so a hang fails the run.
+`tests/engine_host_test.c` scans with the SANE `test` backend through an Engine handle into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, a cancel from another thread while a Page streams, and memory that stays bounded for a 134 MB Page. SIGPIPE stays ignored after a Page ends, fails or is cancelled, so a reader that closes the pipe after a backend has joined its reader thread is still a write error. Every test has a 60 s CTest timeout, so a hang fails the run.
 
 ## Licence guards
 

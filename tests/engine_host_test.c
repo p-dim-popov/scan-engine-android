@@ -38,7 +38,7 @@
    If you do not wish that, delete this exception notice.  */
 
 /* Host test of the Engine core: scans with the SANE test backend through
-   engine_stream_page into a pipe and reads the Page stream back the way the
+   an Engine handle and engine_stream_page into a pipe and reads the Page stream back the way the
    app does.  Run one test by name, or all with no argument.  */
 
 #include <errno.h>
@@ -51,6 +51,7 @@
 #include <string.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "engine.h"
@@ -239,35 +240,31 @@ read_page (void *arg)
   return NULL;
 }
 
-/* ---- test backend session -------------------------------------------------- */
+/* ---- test backend handle --------------------------------------------------- */
 
+/* The Engine's handle on the test backend's device 0, and the backend and
+   SANE handle under it for direct calls.  */
+static engine_handle *engine;
 static const engine_backend *backend;
 static SANE_Handle handle;
 
 static void
 open_test_scanner (void)
 {
-  SANE_Int version;
-  backend = engine_find_backend ("test");
-  if (!backend)
-    {
-      fprintf (stderr, "the test backend is not linked into the Engine\n");
-      exit (1);
-    }
-  if (backend->init (&version, NULL) != SANE_STATUS_GOOD
-      || backend->open ("0", &handle) != SANE_STATUS_GOOD)
+  if (engine_open ("test", "0", &engine) != SANE_STATUS_GOOD)
     {
       fprintf (stderr, "cannot open the test backend's device 0\n");
       exit (1);
     }
+  backend = engine->backend;
+  handle = engine->sane;
 }
 
 static void
 close_test_scanner (void)
 {
   backend->cancel (handle);
-  backend->close (handle);
-  backend->exit ();
+  engine_close (engine);
 }
 
 static int
@@ -346,7 +343,7 @@ stream_page (page_reader *reader, long long close_after_bytes)
     }
   reader->fd = fds[0];
   pthread_create (&thread, NULL, read_page, reader);
-  status = engine_stream_page (backend, handle, fds[1]);
+  status = engine_stream_page (engine, fds[1]);
   close (fds[1]);
   pthread_join (thread, NULL);
   return status;
@@ -549,6 +546,69 @@ app_closing_the_pipe_cancels_the_page (void)
   close_test_scanner ();
 }
 
+static double
+seconds_since (const struct timespec *start)
+{
+  struct timespec now;
+  clock_gettime (CLOCK_MONOTONIC, &now);
+  return (double) (now.tv_sec - start->tv_sec)
+         + (double) (now.tv_nsec - start->tv_nsec) / 1e9;
+}
+
+static void *
+cancel_after_half_a_second (void *arg)
+{
+  usleep (500 * 1000);
+  engine_cancel (arg);
+  return NULL;
+}
+
+/* The app cancels through its own binder call, on another thread than the
+   one streaming the Page.  */
+static void
+cancel_from_another_thread_ends_the_page_promptly (void)
+{
+  page_reader r;
+  pthread_t canceller;
+  struct timespec start;
+  open_test_scanner ();
+  set_string (SANE_NAME_SCAN_MODE, SANE_VALUE_SCAN_MODE_COLOR);
+  set_number (SANE_NAME_BIT_DEPTH, 8);
+  /* 1000 x 1000 pixels of colour in 64 KB writes 200 ms apart: about 9 s.  */
+  set_number (SANE_NAME_SCAN_RESOLUTION, 127);
+  set_number (SANE_NAME_SCAN_BR_X, 200);
+  set_number (SANE_NAME_SCAN_BR_Y, 200);
+  set_bool ("read-delay", SANE_TRUE);
+  set_number ("read-delay-duration", 200000);
+
+  clock_gettime (CLOCK_MONOTONIC, &start);
+  pthread_create (&canceller, NULL, cancel_after_half_a_second, engine);
+  CHECK_EQ (stream_page (&r, -1), SANE_STATUS_CANCELLED);
+  pthread_join (canceller, NULL);
+
+  CHECK (seconds_since (&start) < 2);
+  CHECK (!r.malformed);
+  CHECK_EQ (r.frame_count, 1);
+  CHECK (r.frames[0].bytes > 0);
+  CHECK (r.end_seen);
+  CHECK_EQ (r.end_status, SANE_STATUS_CANCELLED);
+
+  /* The cancelled Scan Job scans no further Page.  */
+  CHECK_EQ (stream_page (&r, -1), SANE_STATUS_CANCELLED);
+  CHECK_EQ (r.frame_count, 0);
+  CHECK_EQ (r.end_status, SANE_STATUS_CANCELLED);
+  close_test_scanner ();
+
+  /* The device is free for the next Scan Job.  The test backend keeps its
+     option values across close and open.  */
+  open_test_scanner ();
+  set_bool ("read-delay", SANE_FALSE);
+  set_100_pixel_square ();
+  CHECK_EQ (stream_page (&r, -1), SANE_STATUS_GOOD);
+  CHECK_EQ (r.frames[0].bytes, 100 * 100 * 3);
+  close_test_scanner ();
+}
+
 static int
 sigpipe_is_ignored (void)
 {
@@ -722,6 +782,8 @@ static const struct
     backend_error_right_after_start_never_hangs },
   { "app_closing_the_pipe_cancels_the_page",
     app_closing_the_pipe_cancels_the_page },
+  { "cancel_from_another_thread_ends_the_page_promptly",
+    cancel_from_another_thread_ends_the_page_promptly },
   { "sigpipe_stays_ignored_after_every_kind_of_page_end",
     sigpipe_stays_ignored_after_every_kind_of_page_end },
   { "sigpipe_stays_ignored_after_a_pixma_style_reader_is_joined",
