@@ -3,9 +3,12 @@
 # GPL-2.0-or-later with the SANE exception; see README.md and COPYING.
 
 # Host build tools. The Android build uses the SDK's CMake through Gradle.
+# shellcheck and actionlint check the scripts and the CI workflow.
 [tools]
 cmake = "4.4.4"
 ninja = "1.13.2"
+shellcheck = "0.11.0"
+actionlint = "1.7.12"
 
 # `mise tasks` lists these; `mise run <name>` runs one with the tools above on the PATH.
 # Each mise task runs the ones it needs first, so any of them can run on its own.
@@ -32,7 +35,11 @@ run = [
     "scripts/check-licence-notices.sh",
 ]
 
+[tasks.lint]
+description = "Run shellcheck on the scripts and actionlint on the CI workflow; any finding fails"
+run = ["shellcheck scripts/*.sh", "actionlint"]
+
 # The steps of .github/workflows/ci.yml, in the same order.
 [tasks.ci]
-description = "Run every CI step in order: configure, build, test, guards"
-run = [{ task = "configure" }, { task = "build" }, { task = "test" }, { task = "guards" }]
+description = "Run every CI step in order: lint, configure, build, test, guards"
+run = [{ task = "lint" }, { task = "configure" }, { task = "build" }, { task = "test" }, { task = "guards" }]
