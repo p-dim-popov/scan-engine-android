@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- scan-engine-android: the Engine's Service, merged into the app's manifest.
+     Copyright (C) 2026 Petar Popov
+     GPL-2.0-or-later with the SANE exception; see README.md and COPYING. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- The Engine runs in its own process; only the app binds it. -->
+        <service
+            android:name=".EngineService"
+            android:exported="false"
+            android:process=":engine" />
+    </application>
+
+</manifest>

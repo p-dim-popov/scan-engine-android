@@ -7,8 +7,9 @@
 #   jpeg         libjpeg-turbo, static (IJG/BSD), built as an external project
 #   sane_engine  the one static library: sanei helpers plus every backend in
 #                ENGINE_BACKENDS, linked through sane_<name>_* entry points
-#   engine       Engine core (backend table, Page stream); libengine.so on
-#                Android, a static library on the host
+#   engine       Engine core (backend table, sessions, Page stream); on
+#                Android libengine.so with the JNI glue, on the host a static
+#                library
 #   engine_host_test  host only: drives the test backend through the Engine core
 cmake_minimum_required(VERSION 3.22)
 project(scan_engine C)
@@ -114,7 +115,8 @@ endforeach()
 configure_file(src/engine_backend_list.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/engine_backend_list.h @ONLY)
 
 if(ANDROID)
-  add_library(engine SHARED src/engine.c)
+  # engine_jni.c is the JNI glue of the Engine's Service (android/).
+  add_library(engine SHARED src/engine.c src/engine_jni.c)
 else()
   add_library(engine STATIC src/engine.c)
 endif()
