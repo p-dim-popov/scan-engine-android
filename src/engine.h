@@ -89,6 +89,7 @@ typedef struct engine_handle
   SANE_Handle sane;
   pthread_mutex_t lock;
   atomic_int cancelled;
+  int usb_fd; /* the USB device's fd, or -1 when the device has none */
   SANE_Byte buffer[ENGINE_READ_BUFFER_SIZE];
 } engine_handle;
 
@@ -98,6 +99,17 @@ typedef struct engine_handle
    sane_open; on SANE_STATUS_GOOD *HANDLE is the new handle.  */
 SANE_Status engine_open (const char *backend, SANE_String_Const device,
                          engine_handle **handle);
+
+/* Opens the device behind FD, a USB device's file descriptor from the app,
+   with the backend called BACKEND: the first device the backend lists once
+   FD is its only USB device.  The handle owns FD and engine_close closes it;
+   on any other status FD is closed at once.  One USB handle is open at a
+   time: SANE_STATUS_DEVICE_BUSY while another is.  Returns
+   SANE_STATUS_INVAL when FD is negative, the build does not link BACKEND or
+   the backend finds no device behind FD, or the status of the backend's
+   sane_open.  */
+SANE_Status engine_open_usb (const char *backend, int fd,
+                             engine_handle **handle);
 
 /* sane_get_option_descriptor and sane_control_option on the handle.  */
 const SANE_Option_Descriptor *
@@ -111,7 +123,7 @@ SANE_Status engine_control_option (engine_handle *handle, SANE_Int option,
    SANE_STATUS_CANCELLED; the caller closes the handle.  */
 void engine_cancel (engine_handle *handle);
 
-/* Closes the device and frees HANDLE.  */
+/* Closes the device, and its USB fd if it has one, and frees HANDLE.  */
 void engine_close (engine_handle *handle);
 
 /* The Page stream.

@@ -2,8 +2,8 @@
    Copyright (C) 2026 Petar Popov
 
    The Engine's binder contract.  It carries SANE shapes only: status codes,
-   option descriptors and values, and the file descriptor of a Page stream
-   (src/engine.h).
+   option descriptors and values, and file descriptors: a USB device's and
+   that of a Page stream (src/engine.h).
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -50,6 +50,13 @@ interface IEngine {
     /** Opens DEVICE of the backend called BACKEND.  On SANE_STATUS_GOOD,
         handle[0] is the new handle.  */
     int open(String backend, String device, out int[] handle);
+
+    /** Opens the device behind USB, a USB device's file descriptor, with
+        the backend called BACKEND.  The Engine closes USB when the handle
+        closes, or at once when the open fails.  One USB handle is open at a
+        time: SANE_STATUS_DEVICE_BUSY while another is.  On
+        SANE_STATUS_GOOD, handle[0] is the new handle.  */
+    int openUsb(String backend, in ParcelFileDescriptor usb, out int[] handle);
 
     /** The descriptors of every option, option 0 (the option count) first.  */
     SaneOptionDescriptor[] getOptionDescriptors(int handle);

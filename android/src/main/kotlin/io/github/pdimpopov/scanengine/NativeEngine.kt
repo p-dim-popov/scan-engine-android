@@ -48,6 +48,9 @@ internal object NativeEngine {
     /** engine_open; on SANE_STATUS_GOOD, handle[0] is the new handle. */
     @JvmStatic external fun open(backend: String, device: String, handle: LongArray): Int
 
+    /** engine_open_usb, which takes over [fd]; on SANE_STATUS_GOOD, handle[0] is the new handle. */
+    @JvmStatic external fun openUsb(backend: String, fd: Int, handle: LongArray): Int
+
     /** The number of options, option 0 included. */
     @JvmStatic external fun optionCount(handle: Long): Int
 

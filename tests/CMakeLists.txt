@@ -21,7 +21,11 @@ foreach(name
     sigpipe_stays_ignored_after_a_pixma_style_reader_is_joined
     app_closing_the_pipe_on_a_later_page_is_a_write_error
     large_page_streams_in_bounded_memory
-    linked_backends_are_found_by_name)
+    linked_backends_are_found_by_name
+    usb_fd_stays_open_until_its_handle_closes
+    usb_fd_is_closed_when_no_device_opens
+    usb_open_without_an_fd_is_refused_and_leaves_usb_free
+    second_usb_handle_is_busy_until_the_first_closes)
   add_test(NAME ${name} COMMAND engine_host_test ${name})
 endforeach()
 

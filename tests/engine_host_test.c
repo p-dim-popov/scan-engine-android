@@ -763,6 +763,110 @@ linked_backends_are_found_by_name (void)
   pixma->exit ();
 }
 
+/* ---- USB file descriptors -------------------------------------------------- */
+
+/* A pipe stands in for a USB device's file descriptor: the Engine is given
+   its write end, and the read end sees the end of the pipe once the Engine
+   has closed it.  The test backend lists its devices whatever the fd.  */
+typedef struct
+{
+  int fd;   /* given to the Engine */
+  int seen; /* kept by the test */
+} usb_stand_in;
+
+static usb_stand_in
+new_usb_stand_in (void)
+{
+  int fds[2];
+  usb_stand_in usb;
+  if (pipe (fds) != 0)
+    {
+      perror ("pipe");
+      exit (1);
+    }
+  fcntl (fds[0], F_SETFL, O_NONBLOCK);
+  usb.seen = fds[0];
+  usb.fd = fds[1];
+  return usb;
+}
+
+/* Whether the Engine has closed the fd: no write end is left open.  */
+static int
+usb_closed (usb_stand_in usb)
+{
+  char byte;
+  return read (usb.seen, &byte, 1) == 0;
+}
+
+static void
+usb_fd_stays_open_until_its_handle_closes (void)
+{
+  usb_stand_in usb = new_usb_stand_in ();
+  engine_handle *h = NULL;
+
+  CHECK_EQ (engine_open_usb ("test", usb.fd, &h), SANE_STATUS_GOOD);
+  CHECK (!usb_closed (usb));
+  if (h)
+    engine_close (h);
+  CHECK (usb_closed (usb));
+  close (usb.seen);
+}
+
+static void
+usb_fd_is_closed_when_no_device_opens (void)
+{
+  usb_stand_in unknown = new_usb_stand_in ();
+  usb_stand_in no_device = new_usb_stand_in ();
+  engine_handle *h = NULL;
+
+  CHECK_EQ (engine_open_usb ("genesys", unknown.fd, &h), SANE_STATUS_INVAL);
+  CHECK (usb_closed (unknown));
+  /* pixma finds no device behind a pipe.  */
+  CHECK_EQ (engine_open_usb ("pixma", no_device.fd, &h), SANE_STATUS_INVAL);
+  CHECK (usb_closed (no_device));
+  close (unknown.seen);
+  close (no_device.seen);
+}
+
+static void
+usb_open_without_an_fd_is_refused_and_leaves_usb_free (void)
+{
+  usb_stand_in usb = new_usb_stand_in ();
+  engine_handle *h = NULL;
+
+  CHECK_EQ (engine_open_usb ("test", -1, &h), SANE_STATUS_INVAL);
+  CHECK_EQ (engine_open_usb ("test", usb.fd, &h), SANE_STATUS_GOOD);
+  if (h)
+    engine_close (h);
+  CHECK (usb_closed (usb));
+  close (usb.seen);
+}
+
+static void
+second_usb_handle_is_busy_until_the_first_closes (void)
+{
+  usb_stand_in first = new_usb_stand_in ();
+  usb_stand_in second = new_usb_stand_in ();
+  usb_stand_in third = new_usb_stand_in ();
+  engine_handle *h = NULL, *h2 = NULL;
+
+  CHECK_EQ (engine_open_usb ("test", first.fd, &h), SANE_STATUS_GOOD);
+  CHECK_EQ (engine_open_usb ("test", second.fd, &h2), SANE_STATUS_DEVICE_BUSY);
+  CHECK (usb_closed (second));
+  CHECK (!usb_closed (first));
+  if (h)
+    engine_close (h);
+
+  /* The next Scan Job's fd opens as the first did.  */
+  CHECK_EQ (engine_open_usb ("test", third.fd, &h2), SANE_STATUS_GOOD);
+  if (h2)
+    engine_close (h2);
+  CHECK (usb_closed (third));
+  close (first.seen);
+  close (second.seen);
+  close (third.seen);
+}
+
 static const struct
 {
   const char *name;
@@ -794,6 +898,14 @@ static const struct
     large_page_streams_in_bounded_memory },
   { "linked_backends_are_found_by_name",
     linked_backends_are_found_by_name },
+  { "usb_fd_stays_open_until_its_handle_closes",
+    usb_fd_stays_open_until_its_handle_closes },
+  { "usb_fd_is_closed_when_no_device_opens",
+    usb_fd_is_closed_when_no_device_opens },
+  { "usb_open_without_an_fd_is_refused_and_leaves_usb_free",
+    usb_open_without_an_fd_is_refused_and_leaves_usb_free },
+  { "second_usb_handle_is_busy_until_the_first_closes",
+    second_usb_handle_is_busy_until_the_first_closes },
 };
 
 int

@@ -219,14 +219,36 @@ static libusb_context *sanei_usb_ctx;
 
 /* Android (2026-10-18): the app has no access to
  * /dev/bus/usb; UsbDeviceConnection.getFileDescriptor() hands us an already
- * open usbfs fd instead.  We wrap it once with libusb_wrap_sys_device and keep
- * that handle for the life of sanei_usb. */
+ * open usbfs fd instead.  The next device scan wraps it with
+ * libusb_wrap_sys_device, and that handle is kept until another fd replaces
+ * it or sanei_usb exits. */
 static int sanei_usb_android_fd = -1;
 static libusb_device_handle *sanei_usb_android_handle = NULL;
 
 void
 sanei_usb_set_android_fd (int fd)
 {
+  int i;
+
+  /* Android (2026-10-20): forget the device behind the previous fd, so that
+   * a new fd is wrapped afresh even when it has the same number.  */
+  if (sanei_usb_android_handle)
+    {
+      for (i = 0; i < device_number; i++)
+        if (devices[i].lu_wrapped
+            && devices[i].lu_handle == sanei_usb_android_handle)
+          {
+            libusb_unref_device (devices[i].lu_device);
+            devices[i].lu_device = NULL;
+            devices[i].lu_handle = NULL;
+            devices[i].lu_wrapped = 0;
+            devices[i].open = SANE_FALSE;
+            /* Missing: a later scan stores the next device in this slot.  */
+            devices[i].missing = 2;
+          }
+      libusb_close (sanei_usb_android_handle);
+      sanei_usb_android_handle = NULL;
+    }
   sanei_usb_android_fd = fd;
 }
 #endif /* HAVE_LIBUSB */
