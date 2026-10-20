@@ -160,6 +160,7 @@ typedef struct
 #ifdef HAVE_LIBUSB
   libusb_device *lu_device;
   libusb_device_handle *lu_handle;
+  int lu_wrapped; /* Android: handle came from libusb_wrap_sys_device, keep it open */
 #endif /* HAVE_LIBUSB */
 }
 device_list_type;
@@ -215,6 +216,19 @@ static int libusb_timeout = 30 * 1000;	/* 30 seconds */
 
 #ifdef HAVE_LIBUSB
 static libusb_context *sanei_usb_ctx;
+
+/* Android (2026-10-18): the app has no access to
+ * /dev/bus/usb; UsbDeviceConnection.getFileDescriptor() hands us an already
+ * open usbfs fd instead.  We wrap it once with libusb_wrap_sys_device and keep
+ * that handle for the life of sanei_usb. */
+static int sanei_usb_android_fd = -1;
+static libusb_device_handle *sanei_usb_android_handle = NULL;
+
+void
+sanei_usb_set_android_fd (int fd)
+{
+  sanei_usb_android_fd = fd;
+}
 #endif /* HAVE_LIBUSB */
 
 #if defined (__APPLE__)
@@ -405,6 +419,12 @@ store_device (device_list_type device)
 #endif
 #ifdef HAVE_LIBUSB
           devices[i].lu_device = device.lu_device;
+          if (device.lu_wrapped)
+            {
+              /* Android: keep the wrapped handle across rescans.  */
+              devices[i].lu_handle = device.lu_handle;
+              devices[i].lu_wrapped = 1;
+            }
 #endif
 
           devices[i].missing=0;
@@ -1432,6 +1452,10 @@ sanei_usb_init (void)
   if (!sanei_usb_ctx)
     {
       DBG (4, "%s: initializing libusb-1.0\n", __func__);
+#if defined(__ANDROID__) && LIBUSB_API_VERSION >= 0x0100010A
+      /* Android: no udev/sysfs enumeration is possible for an app process. */
+      libusb_set_option (NULL, LIBUSB_OPTION_NO_DEVICE_DISCOVERY);
+#endif
       ret = libusb_init (&sanei_usb_ctx);
       if (ret < 0)
 	{
@@ -1500,6 +1524,11 @@ int i;
             }
         }
 #ifdef HAVE_LIBUSB
+      if (sanei_usb_android_handle)
+        {
+          libusb_close (sanei_usb_android_handle);
+          sanei_usb_android_handle = NULL;
+        }
       if (sanei_usb_ctx)
         {
           libusb_exit (sanei_usb_ctx);
@@ -1978,6 +2007,74 @@ static void libusb_scan_devices(void)
 
   libusb_free_device_list (devlist, 1);
 
+  /* Android: add the device behind the wrapped fd, if any (2026-10-18). */
+  if (sanei_usb_android_fd >= 0)
+    {
+      if (!sanei_usb_android_handle)
+        {
+          ret = libusb_wrap_sys_device (sanei_usb_ctx,
+                                        (intptr_t) sanei_usb_android_fd,
+                                        &sanei_usb_android_handle);
+          if (ret < 0)
+            {
+              DBG (1, "%s: libusb_wrap_sys_device(fd=%d) failed: %s\n", __func__,
+                   sanei_usb_android_fd, sanei_libusb_strerror (ret));
+              sanei_usb_android_handle = NULL;
+              return;
+            }
+        }
+      dev = libusb_get_device (sanei_usb_android_handle);
+      ret = libusb_get_device_descriptor (dev, &desc);
+      if (ret < 0)
+        {
+          DBG (1, "%s: android fd: no device descriptor (err %d)\n", __func__, ret);
+          return;
+        }
+      vid = desc.idVendor;
+      pid = desc.idProduct;
+      ret = libusb_get_config_descriptor (dev, 0, &config0);
+      if (ret < 0)
+        {
+          DBG (1, "%s: android fd: no config[0] descriptor (err %d)\n", __func__, ret);
+          return;
+        }
+      /* Pick the first interface that looks like a scanner; fall back to 0. */
+      interface = 0;
+      for (i = 0; i < config0->bNumInterfaces; i++)
+        {
+          const struct libusb_interface_descriptor *alt0;
+          if (config0->interface[i].num_altsetting == 0)
+            continue;
+          alt0 = &config0->interface[i].altsetting[0];
+          if (desc.bDeviceClass == LIBUSB_CLASS_VENDOR_SPEC
+              || alt0->bInterfaceClass == LIBUSB_CLASS_VENDOR_SPEC
+              || alt0->bInterfaceClass == LIBUSB_CLASS_PER_INTERFACE
+              || alt0->bInterfaceClass == LIBUSB_CLASS_PTP
+              || alt0->bInterfaceClass == 16)
+            {
+              interface = i;
+              break;
+            }
+        }
+      libusb_free_config_descriptor (config0);
+
+      memset (&device, 0, sizeof (device));
+      device.lu_device = libusb_ref_device (dev);
+      device.lu_handle = sanei_usb_android_handle;
+      device.lu_wrapped = 1;
+      snprintf (devname, sizeof (devname), "libusb:android:%d", sanei_usb_android_fd);
+      device.devname = strdup (devname);
+      if (!device.devname)
+        return;
+      device.vendor = vid;
+      device.product = pid;
+      device.method = sanei_usb_method_libusb;
+      device.interface_nr = interface;
+      device.alt_setting = 0;
+      DBG (4, "%s: found Android wrapped device (0x%04x/0x%04x) interface %d at %s\n",
+           __func__, vid, pid, interface, devname);
+      store_device (device);
+    }
 }
 #endif /* HAVE_LIBUSB */
 
@@ -2608,7 +2705,10 @@ sanei_usb_open (SANE_String_Const devname, SANE_Int * dn)
 
       dev = devices[devcount].lu_device;
 
-      result = libusb_open (dev, &devices[devcount].lu_handle);
+      if (devices[devcount].lu_wrapped)
+        result = 0; /* Android: handle already open via libusb_wrap_sys_device */
+      else
+        result = libusb_open (dev, &devices[devcount].lu_handle);
       if (result < 0)
 	{
 	  SANE_Status status = SANE_STATUS_INVAL;
@@ -2703,7 +2803,8 @@ sanei_usb_open (SANE_String_Const devname, SANE_Int * dn)
 
 	      if (status != SANE_STATUS_GOOD)
 		{
-		  libusb_close (devices[devcount].lu_handle);
+		  if (!devices[devcount].lu_wrapped)
+		    libusb_close (devices[devcount].lu_handle);
 		  libusb_free_config_descriptor (config0);
 		  return status;
 		}
@@ -2733,7 +2834,8 @@ sanei_usb_open (SANE_String_Const devname, SANE_Int * dn)
 	      status = SANE_STATUS_DEVICE_BUSY;
 	    }
 
-	  libusb_close (devices[devcount].lu_handle);
+	  if (!devices[devcount].lu_wrapped)
+	    libusb_close (devices[devcount].lu_handle);
 	  return status;
 	}
 
@@ -3060,7 +3162,8 @@ sanei_usb_close (SANE_Int dn)
 
       libusb_release_interface (devices[dn].lu_handle,
 				devices[dn].interface_nr);
-      libusb_close (devices[dn].lu_handle);
+      if (!devices[dn].lu_wrapped)
+        libusb_close (devices[dn].lu_handle);
     }
 #else /* not HAVE_LIBUSB_LEGACY && not HAVE_LIBUSB */
     DBG (1, "sanei_usb_close: libusb support missing\n");

@@ -1,3 +1,5 @@
 config.h.in
 config.h
 stamp-h1
+# scan-engine-android: hand-written, not generated
+!config.h

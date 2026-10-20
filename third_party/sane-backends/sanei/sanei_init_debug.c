@@ -37,6 +37,9 @@
    If you do not wish that, delete this exception notice.  */
 
 #include "../include/sane/config.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #include <ctype.h>
 #include <stdio.h>
@@ -149,6 +152,10 @@ sanei_debug_msg
 	}
       else
 #endif
+#ifdef __ANDROID__
+	/* Android: an app's stderr goes nowhere; logcat stamps the time.  */
+	__android_log_vprint (ANDROID_LOG_DEBUG, be, fmt, ap);
+#else
 	{
           struct timeval tv;
           struct tm *t;
@@ -159,6 +166,7 @@ sanei_debug_msg
           fprintf (stderr, "[%02d:%02d:%02d.%06ld] [%s] ", t->tm_hour, t->tm_min, t->tm_sec, tv.tv_usec, be);
           vfprintf (stderr, fmt, ap);
 	}
+#endif
 
     }
 }

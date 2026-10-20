@@ -179,7 +179,8 @@ sanei_thread_kill( SANE_Pid pid )
 	DBG(2, "sanei_thread_kill() will kill %ld\n",
 	    sanei_thread_pid_to_long(pid));
 #ifdef USE_PTHREAD
-#if defined (__APPLE__) && defined (__MACH__)
+	/* Android: bionic has no pthread_cancel; use the macOS path.  */
+#if (defined (__APPLE__) && defined (__MACH__)) || defined (__ANDROID__)
 	return pthread_kill((pthread_t)pid, SIGUSR2);
 #else
 	return pthread_cancel((pthread_t)pid);
@@ -317,7 +318,7 @@ sanei_thread_sendsig( SANE_Pid pid, int sig )
 
 /**
  */
-#if defined (__APPLE__) && defined (__MACH__)
+#if (defined (__APPLE__) && defined (__MACH__)) || defined (__ANDROID__)
 static void
 thread_exit_handler( int signo )
 {
@@ -333,7 +334,7 @@ local_thread( void *arg )
 	static int     status;
 	pThreadDataDef ltd = (pThreadDataDef)arg;
 
-#if defined (__APPLE__) && defined (__MACH__)
+#if (defined (__APPLE__) && defined (__MACH__)) || defined (__ANDROID__)
 	struct sigaction act;
 
 	sigemptyset(&(act.sa_mask));

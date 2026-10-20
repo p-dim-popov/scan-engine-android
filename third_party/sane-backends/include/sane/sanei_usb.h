@@ -377,6 +377,10 @@ extern void sanei_usb_set_timeout (SANE_Int timeout);
  */
 #define HAVE_SANEI_USB_SET_TIMEOUT
 
+/** Android (2026-10-18): hand sanei_usb an already-open usbfs file descriptor
+ * (UsbDeviceConnection.getFileDescriptor()).  Call before sanei_usb_init(). */
+extern void sanei_usb_set_android_fd (int fd);
+
 /** Clear halt condition on bulk endpoints
  *
  * @param dn device number
