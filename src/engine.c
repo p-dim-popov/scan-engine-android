@@ -46,6 +46,12 @@
 #include "engine.h"
 #include "sane/sanei_usb.h"
 
+/* The Engine's own refusals go where the backends' debug output goes, at
+   level 0: to logcat under the tag "engine" in debug builds, nowhere under
+   NDEBUG.  */
+#define BACKEND_NAME engine
+#include "sane/sanei_debug.h"
+
 /* Declare every linked backend's entry points ...  */
 #define ENGINE_BACKEND(name)                                                \
   SANE_Status sane_##name##_init (SANE_Int *, SANE_Auth_Callback);         \
@@ -151,7 +157,10 @@ engine_open (const char *backend_name, SANE_String_Const device,
   SANE_Status status;
 
   if (!backend)
-    return SANE_STATUS_INVAL;
+    {
+      DBG (0, "engine_open: no backend %s\n", backend_name);
+      return SANE_STATUS_INVAL;
+    }
   pthread_mutex_lock (&backend_lock);
   status = init_backend (backend);
   pthread_mutex_unlock (&backend_lock);
@@ -168,15 +177,22 @@ engine_open_usb (const char *backend_name, int fd, engine_handle **handle)
   SANE_Status status;
 
   if (fd < 0)
-    return SANE_STATUS_INVAL;
+    {
+      DBG (0, "engine_open_usb: no file descriptor\n");
+      return SANE_STATUS_INVAL;
+    }
   if (!backend)
     {
+      DBG (0, "engine_open_usb: no backend %s\n", backend_name);
       close (fd);
       return SANE_STATUS_INVAL;
     }
   pthread_mutex_lock (&backend_lock);
   if (usb_open)
-    status = SANE_STATUS_DEVICE_BUSY;
+    {
+      DBG (0, "engine_open_usb: a USB handle is already open\n");
+      status = SANE_STATUS_DEVICE_BUSY;
+    }
   else
     {
       /* A backend initialised before lists the new device after a
@@ -187,10 +203,13 @@ engine_open_usb (const char *backend_name, int fd, engine_handle **handle)
       status = init_backend (backend);
       if (status == SANE_STATUS_GOOD)
         status = backend->get_devices (&devices, SANE_TRUE);
+      if (status == SANE_STATUS_GOOD && !(devices && devices[0]))
+        {
+          DBG (0, "engine_open_usb: %s lists no device\n", backend_name);
+          status = SANE_STATUS_INVAL;
+        }
       if (status == SANE_STATUS_GOOD)
-        status = devices && devices[0]
-                   ? open_handle (backend, devices[0]->name, fd, handle)
-                   : SANE_STATUS_INVAL;
+        status = open_handle (backend, devices[0]->name, fd, handle);
       if (status == SANE_STATUS_GOOD)
         usb_open = 1;
       else
