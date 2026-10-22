@@ -45,7 +45,48 @@
 
 #include "engine.h"
 
+#if defined(__ANDROID__) && !defined(NDEBUG)
+#include <ctype.h>
+#include <stdio.h>
+#include <sys/system_properties.h>
+#endif
+
 #define JNI(name) Java_io_github_pdimpopov_scanengine_NativeEngine_##name
+
+#if defined(__ANDROID__) && !defined(NDEBUG)
+/* The SANE debug names that a debug build lets a system property raise: the
+   linked backends and the sanei modules that read a level.  */
+static const char *const debug_names[] = {
+#define ENGINE_BACKEND(name) #name,
+#include "engine_backend_list.h"
+#undef ENGINE_BACKEND
+  "sanei_usb", "sanei_config", "sanei_thread",
+};
+
+/* Sets SANE_DEBUG_<NAME> from the system property debug.sane.<name> (README,
+   "Debug output"), before any backend reads its level on its first use.  */
+static void
+set_debug_levels (void)
+{
+  size_t i, j;
+  for (i = 0; i < sizeof debug_names / sizeof debug_names[0]; i++)
+    {
+      char property[64], variable[64], value[PROP_VALUE_MAX];
+      snprintf (property, sizeof property, "debug.sane.%s", debug_names[i]);
+      if (__system_property_get (property, value) <= 0)
+        continue;
+      snprintf (variable, sizeof variable, "SANE_DEBUG_%s", debug_names[i]);
+      for (j = 0; variable[j]; j++)
+        variable[j] = toupper ((unsigned char) variable[j]);
+      setenv (variable, value, 1);
+    }
+}
+#else
+static void
+set_debug_levels (void)
+{
+}
+#endif
 
 JNIEXPORT jint
 JNI_OnLoad (JavaVM *vm, void *reserved)
@@ -54,6 +95,7 @@ JNI_OnLoad (JavaVM *vm, void *reserved)
   (void) reserved;
   /* The app may close its end of a Page stream at any time (engine.h).  */
   signal (SIGPIPE, SIG_IGN);
+  set_debug_levels ();
   return JNI_VERSION_1_6;
 }
 

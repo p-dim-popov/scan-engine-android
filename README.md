@@ -36,6 +36,19 @@ On the Linux host, it builds as a static library and a test executable. `mise.to
 
 The host build also needs a C compiler, Python 3 and a JDK. Python 3 generates pixma's option tables from `pixma.c`, as the upstream build does. The JDK provides `jni.h`: the host build compiles the JNI glue (`src/engine_jni.c`) without linking it, so an error there fails the host build and CI, not only the consuming app's build.
 
+## Debug output
+
+In a debug build of the Android library, SANE debug output goes to logcat, one tag per backend or sanei module. The process gets no environment from adb, so `SANE_DEBUG_<NAME>` comes from the system property `debug.sane.<name>`, which `JNI_OnLoad` reads for each linked backend and for `sanei_usb`, `sanei_config` and `sanei_thread`. A property needs no root and holds until the device restarts; the next Engine process reads it:
+
+```
+adb shell setprop debug.sane.pixma 4
+adb shell setprop debug.sane.sanei_usb 5
+```
+
+`sanei_usb` above 4 also turns on libusb's own log, tag `libusb`. The Engine core logs each refusal it returns itself (a second USB handle, an unknown backend, a backend that lists no device) under the tag `engine`, at every level.
+
+Release builds log none of it: the build type defines `NDEBUG`, which removes the property read and pixma's `PDBG` and makes `DBG` print nothing.
+
 ## Tests
 
 `tests/engine_host_test.c` scans with the SANE `test` backend through an Engine handle into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, a cancel from another thread while a Page streams, and memory that stays bounded for a 134 MB Page. A pipe stands in for a USB device's file descriptor to check that the Engine closes it with its handle or on a failed open, and that a second USB handle is busy while one is open. SIGPIPE stays ignored after a Page ends, fails or is cancelled, so a reader that closes the pipe after a backend has joined its reader thread is still a write error. Every test has a 60 s CTest timeout, so a hang fails the run.
