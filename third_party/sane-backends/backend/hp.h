@@ -167,6 +167,8 @@ typedef struct
   hp_bool_t mirror_vertical;
   hp_bool_t invert;
   HpScl startscan;
+  volatile hp_bool_t stop; /* Set to end a reader thread, which is not */
+                           /* cancelled. A forked child's copy stays 0. */
 } HpProcessData;
 
 /* hp-option.c */

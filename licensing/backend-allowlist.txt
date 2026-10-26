@@ -9,8 +9,7 @@
 # A backend also ships only when it stops its reader thread as pixma does: a
 # stop flag or a closed pipe, then a join. sanei_thread_kill cancels the
 # thread asynchronously and can freeze the Engine process; see README,
-# Changes to sane-backends 1.4.0, item 5. avision and hp call it on cancel
-# in thread mode and need that change before they ship.
+# Changes to sane-backends 1.4.0, items 5 and 11.
 #
 # Never list (no exception): genesys, epson2, epsonds, xerox_mfp,
 # canon_lide70, kodakaio, kvs1025, kvs20xx, kvs40xx, magicolor, hp4200,

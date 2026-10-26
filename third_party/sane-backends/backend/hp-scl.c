@@ -1502,6 +1502,9 @@ sanei_hp_scsi_pipeout (HpScsi this, int outfd, HpProcessData *procdata)
   sigset_t	old_set, sig_set;
   int		i;
   int           bits_per_channel = procdata->bits_per_channel;
+  /* A reader thread is not cancelled: hp_handle_stopScan sets
+   * procdata->stop and closes the read end of the pipe. */
+#define HP_STOPPED	(signal_caught || procdata->stop)
 
 #define HP_PIPEBUF	32768
   SANE_Status	status	= SANE_STATUS_GOOD;
@@ -1571,7 +1574,7 @@ sanei_hp_scsi_pipeout (HpScsi this, int outfd, HpProcessData *procdata)
     for (;;)
     {int val = 0;
 
-       if (signal_caught) goto quit;
+       if (HP_STOPPED) goto quit;
        sanei_hp_scl_inquire (this, SCL_FRONT_BUTTON, &val, 0, 0);
        if (val) break;
        usleep ((unsigned long)333*1000); /* Wait 1/3 second */
@@ -1624,11 +1627,11 @@ sanei_hp_scsi_pipeout (HpScsi this, int outfd, HpProcessData *procdata)
 		  sane_strstatus(status));
 	      goto quit;
 	    }
-	  if (signal_caught)
+	  if (HP_STOPPED)
 	      goto quit;
 	}
 
-      if (signal_caught)
+      if (HP_STOPPED)
 	  goto quit;
 
       assert(reqs_completed < reqs_issued);
@@ -1642,7 +1645,7 @@ sanei_hp_scsi_pipeout (HpScsi this, int outfd, HpProcessData *procdata)
 	      sane_strstatus(status));
 	  goto quit;
 	}
-      if (signal_caught)
+      if (HP_STOPPED)
 	  goto quit;
 
       status = process_data (ph, (unsigned char *)req->data, (int)req->len);
@@ -1665,7 +1668,7 @@ sanei_hp_scsi_pipeout (HpScsi this, int outfd, HpProcessData *procdata)
     while (count > 0)
     {size_t nread;
 
-      if (signal_caught)
+      if (HP_STOPPED)
 	  goto quit;
 
       DBG(5, "do_read: %lu bytes left to read\n", (unsigned long)count);
@@ -1729,6 +1732,11 @@ quit:
     {
       DBG(1, "do_read: caught signal %d\n", signal_caught);
       raise(signal_caught);
+      return SANE_STATUS_CANCELLED;
+    }
+  if (procdata->stop)
+    {
+      DBG(1, "do_read: stopped\n");
       return SANE_STATUS_CANCELLED;
     }
 

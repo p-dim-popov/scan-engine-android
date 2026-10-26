@@ -159,6 +159,7 @@ hp_handle_startReader (HpHandle this, HpScsi scsi)
 
   assert(this->reader_pid == 0);
   this->cancelled = 0;
+  this->procdata.stop = 0;
   this->pipe_write_fd = this->pipe_read_fd = -1;
 
   if (pipe(fds))
@@ -224,19 +225,39 @@ hp_handle_stopScan (HpHandle this)
   if (this->reader_pid)
     {
       int info;
-      DBG(3, "hp_handle_stopScan: killing child (%ld)\n", (long) this->reader_pid);
-      sanei_thread_kill (this->reader_pid);
-      sanei_thread_waitpid(this->reader_pid, &info);
+      hp_bool_t reset;  /* the reader ended early: reset the scanner */
 
-      DBG(1, "hp_handle_stopScan: child %s = %d\n",
-	  WIFEXITED(info) ? "exited, status" : "signalled, signal",
-	  WIFEXITED(info) ? WEXITSTATUS(info) : WTERMSIG(info));
-      close(this->pipe_read_fd);
+      if (this->child_forked)
+      {
+        DBG(3, "hp_handle_stopScan: killing child (%ld)\n", (long) this->reader_pid);
+        sanei_thread_kill (this->reader_pid);
+        sanei_thread_waitpid(this->reader_pid, &info);
+
+        DBG(1, "hp_handle_stopScan: child %s = %d\n",
+	    WIFEXITED(info) ? "exited, status" : "signalled, signal",
+	    WIFEXITED(info) ? WEXITSTATUS(info) : WTERMSIG(info));
+        close(this->pipe_read_fd);
+        reset = WIFSIGNALED(info);
+      }
+      else
+      {
+        /* A reader thread is not cancelled: that can stop it inside malloc
+         * and leave the join waiting for ever. It sees the flag between
+         * reads, and its next write to the closed pipe fails. */
+        DBG(3, "hp_handle_stopScan: stopping thread (%ld)\n", (long) this->reader_pid);
+        this->procdata.stop = 1;
+        close(this->pipe_read_fd);
+        sanei_thread_waitpid(this->reader_pid, &info);
+
+        DBG(1, "hp_handle_stopScan: thread returned %s\n", sane_strstatus(info));
+        reset = info != SANE_STATUS_GOOD;
+      }
+      this->pipe_read_fd = -1;
       this->reader_pid = 0;
 
       if ( !FAILED( sanei_hp_scsi_new(&scsi, this->dev->sanedev.name)) )
       {
-        if (WIFSIGNALED(info))
+        if (reset)
 	{
 	  /*
 	  sanei_hp_scl_set(scsi, SCL_CLEAR_ERRORS, 0);
@@ -735,9 +756,18 @@ sanei_hp_handle_cancel (HpHandle this)
   if (    (this->reader_pid)
        && (this->dev->compat & HP_COMPAT_OJ_1150C) )
   {
-     DBG(3,"sanei_hp_handle_cancel: send SIGTERM to child (%ld)\n",
-         (long) this->reader_pid);
-     sanei_thread_kill(this->reader_pid);
+     if (this->child_forked)
+     {
+       DBG(3,"sanei_hp_handle_cancel: send SIGTERM to child (%ld)\n",
+           (long) this->reader_pid);
+       sanei_thread_kill(this->reader_pid);
+     }
+     else
+     {
+       DBG(3,"sanei_hp_handle_cancel: stop thread (%ld)\n",
+           (long) this->reader_pid);
+       this->procdata.stop = 1;
+     }
   }
 }
 
