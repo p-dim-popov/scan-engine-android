@@ -6980,8 +6980,6 @@ do_cancel (Avision_Scanner* s)
   DBG (3, "do_cancel:\n");
 
   s->prepared = s->scanning = SANE_FALSE;
-  s->duplex_rear_valid = SANE_FALSE;
-  s->page = 0;
   s->cancelled = SANE_TRUE;
 
   if (s->read_fds >= 0) {
@@ -6992,11 +6990,18 @@ do_cancel (Avision_Scanner* s)
   if (sanei_thread_is_valid (s->reader_pid)) {
     int exit_status;
 
-    /* ensure child knows it's time to stop: */
-    sanei_thread_kill (s->reader_pid);
+    /* ensure child knows it's time to stop.  A reader thread is not
+       cancelled, which can stop it inside malloc and leave the join
+       waiting for ever: it checks s->cancelled before each read.  */
+    if (sanei_thread_is_forked ())
+      sanei_thread_kill (s->reader_pid);
     sanei_thread_waitpid (s->reader_pid, &exit_status);
     sanei_thread_invalidate (s->reader_pid);
   }
+
+  /* a reader thread reads these: reset them once it has ended */
+  s->duplex_rear_valid = SANE_FALSE;
+  s->page = 0;
 
   if (s->hw->hw->feature_type & AV_FASTFEED_ON_CANCEL) {
     status = release_unit (s, 1);
@@ -7589,8 +7594,7 @@ reader_process (void *data)
     sigaddset (&sigterm_set, SIGTERM);
   }
 #if defined (USE_PTHREAD) && !defined (__ANDROID__)
-  /* bionic has no pthread cancellation; sanei_thread stops a reader thread
-     on Android with SIGUSR2.  */
+  /* bionic has no pthread cancellation.  */
   else {
     int old;
     pthread_setcancelstate (PTHREAD_CANCEL_ENABLE, &old);
@@ -7789,6 +7793,14 @@ reader_process (void *data)
              exit_status  == SANE_STATUS_GOOD)
 	{
 	  size_t this_read = stripe_size - stripe_fill;
+
+	  /* a reader thread ends here once do_cancel has set this; a forked
+	     child's copy never changes */
+	  if (s->cancelled) {
+	    DBG (3, "reader_process: cancelled\n");
+	    exit_status = SANE_STATUS_CANCELLED;
+	    break;
+	  }
 
 	  /* Limit reads to max_bytes_per_read and global data
 	     boundaries. Rounded to the next lower multiple of
@@ -8341,6 +8353,11 @@ reader_process (void *data)
     {
       DBG (1, "reader_process: virtual duplex scan - no device cleanup!\n");
     }
+  else if (s->cancelled)
+    {
+      /* as a killed child: do_cancel releases the unit after the join */
+      DBG (1, "reader_process: cancelled - no device cleanup!\n");
+    }
   else
     {
       /* poll the cancel button if the scanner is marked as having one */
@@ -8362,7 +8379,7 @@ reader_process (void *data)
 
   if ((dev->hw->feature_type & AV_ADF_FLIPPING_DUPLEX) && s->source_mode == AV_ADF_DUPLEX && s->page % 2) {
     /* front page of flipping duplex */
-    if (exit_status == SANE_STATUS_EOF) {
+    if (exit_status == SANE_STATUS_EOF && !s->cancelled) {
       if (s->val[OPT_ADF_FLIP].w) {
         /* The page flip bit must be reset after every scan, but if the
          * user doesn't care, there's no reason to reset.

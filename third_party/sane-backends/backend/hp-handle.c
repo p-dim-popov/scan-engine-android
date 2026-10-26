@@ -159,6 +159,7 @@ hp_handle_startReader (HpHandle this, HpScsi scsi)
 
   assert(this->reader_pid == 0);
   this->cancelled = 0;
+  this->procdata.stop = 0;
   this->pipe_write_fd = this->pipe_read_fd = -1;
 
   if (pipe(fds))
@@ -224,14 +225,28 @@ hp_handle_stopScan (HpHandle this)
   if (this->reader_pid)
     {
       int info;
-      DBG(3, "hp_handle_stopScan: killing child (%ld)\n", (long) this->reader_pid);
-      sanei_thread_kill (this->reader_pid);
+      if (this->child_forked)
+      {
+        DBG(3, "hp_handle_stopScan: killing child (%ld)\n", (long) this->reader_pid);
+        sanei_thread_kill (this->reader_pid);
+      }
+      else
+      { /* A reader thread is not cancelled: see hp.h, procdata.stop */
+        DBG(3, "hp_handle_stopScan: stopping thread (%ld)\n", (long) this->reader_pid);
+        this->procdata.stop = 1;
+        close(this->pipe_read_fd);
+        this->pipe_read_fd = -1;
+      }
       sanei_thread_waitpid(this->reader_pid, &info);
+      /* A stopped thread returns CANCELLED where a cancelled one gave GOOD */
+      if (!this->child_forked && info == SANE_STATUS_CANCELLED)
+        info = SANE_STATUS_GOOD;
 
       DBG(1, "hp_handle_stopScan: child %s = %d\n",
 	  WIFEXITED(info) ? "exited, status" : "signalled, signal",
 	  WIFEXITED(info) ? WEXITSTATUS(info) : WTERMSIG(info));
-      close(this->pipe_read_fd);
+      if (this->pipe_read_fd >= 0)
+        close(this->pipe_read_fd);
       this->reader_pid = 0;
 
       if ( !FAILED( sanei_hp_scsi_new(&scsi, this->dev->sanedev.name)) )
@@ -728,11 +743,15 @@ void
 sanei_hp_handle_cancel (HpHandle this)
 {
   this->cancelled = 1;
+  /* A reader thread stops by itself: see hp.h, procdata.stop */
+  if (!this->child_forked)
+    this->procdata.stop = 1;
   /* The OfficeJet K series may not deliver enough data. */
   /* Therefore the read might not return until it is interrupted. */
   DBG(3,"sanei_hp_handle_cancel: compat flags: 0x%04x\n",
       (int)this->dev->compat);
   if (    (this->reader_pid)
+       && (this->child_forked)
        && (this->dev->compat & HP_COMPAT_OJ_1150C) )
   {
      DBG(3,"sanei_hp_handle_cancel: send SIGTERM to child (%ld)\n",

@@ -167,6 +167,11 @@ typedef struct
   hp_bool_t mirror_vertical;
   hp_bool_t invert;
   HpScl startscan;
+  volatile hp_bool_t stop; /* Ends a reader thread between reads; with */
+                           /* the pipe closed, its next write fails too. */
+                           /* sanei_thread_kill can stop a thread inside */
+                           /* malloc and leave the join waiting for ever. */
+                           /* A forked child's copy stays 0. */
 } HpProcessData;
 
 /* hp-option.c */
