@@ -11,7 +11,10 @@
 # .c files too, must contain the exception text, unless EXEMPTIONS names it
 # (one path relative to SANE_DIR per line, then the reason; # starts a comment).
 # An exempt file must not mention the GNU GPL, and every exemption must name
-# a compiled file, so a stale entry cannot linger.
+# a compiled file, so a stale entry cannot linger. A reason of the form
+# "by-reference OTHER" exempts a file whose header points to the opening
+# comments of OTHER (relative to SANE_DIR): OTHER must carry the exception
+# and the file must name it.
 # One exception-free file in the Engine process would put the whole process
 # under the plain GPL, so this reruns on every upstream rebase.
 set -euo pipefail
@@ -45,7 +48,23 @@ if [[ ${#compiled[@]} -eq 0 ]]; then
   exit 1
 fi
 
-mapfile -t exempt < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$exemptions" | awk '{print $1}')
+mapfile -t entries < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$exemptions")
+exempt=()
+for entry in "${entries[@]}"; do
+  read -r path _ <<<"$entry"
+  exempt+=("$path")
+done
+
+# Prints the file an exemption's reason refers to, or nothing.
+reference_of() {
+  local entry path kind other
+  for entry in "${entries[@]}"; do
+    read -r path kind other _ <<<"$entry"
+    if [[ $path = "$1" && $kind = by-reference ]]; then
+      echo "$other"
+    fi
+  done
+}
 
 missing=0
 for file in "${compiled[@]}"; do
@@ -54,11 +73,20 @@ for file in "${compiled[@]}"; do
     continue
   fi
   if printf '%s\n' "${exempt[@]}" | grep -qxF "$relative"; then
+    other=$(reference_of "$relative")
     if grep -q "GNU General Public License" "$file"; then
       echo "EXEMPT BUT UNDER THE GNU GPL: $relative" >&2
       missing=1
-    else
+    elif [[ -z $other ]]; then
       echo "exempt: $relative"
+    elif ! grep -q "As a special exception" "$sane/$other" 2>/dev/null; then
+      echo "REFERS TO A FILE WITHOUT THE SANE EXCEPTION: $relative -> $other" >&2
+      missing=1
+    elif ! grep -qF "$(basename "$other")" "$file"; then
+      echo "DOES NOT NAME THE FILE IT REFERS TO: $relative -> $other" >&2
+      missing=1
+    else
+      echo "covered by reference to $other: $relative"
     fi
     continue
   fi
@@ -74,7 +102,7 @@ for relative in "${exempt[@]}"; do
 done
 
 if [[ $missing -ne 0 ]]; then
-  echo "Fix the files above: drop a backend whose files lack the SANE exception; exempt a file in $exemptions only when it is compiled and under a non-GPL permissive licence." >&2
+  echo "Fix the files above: drop a backend whose files lack the SANE exception; exempt a file in $exemptions only when it is compiled and under a non-GPL permissive licence, or when its header points to the opening comments of a file that carries the exception (by-reference)." >&2
   exit 1
 fi
 echo "All ${#compiled[@]} compiled backend/ and sanei/ files carry the SANE exception or a valid exemption."

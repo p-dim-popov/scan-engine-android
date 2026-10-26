@@ -6,7 +6,8 @@
 #   usb          libusb-1.0, static (LGPL-2.1)
 #   jpeg         libjpeg-turbo, static (IJG/BSD), built as an external project
 #   sane_engine  the one static library: sanei helpers plus every backend in
-#                ENGINE_BACKENDS, linked through sane_<name>_* entry points
+#                ENGINE_BACKENDS, linked through sane_<name>_* entry points,
+#                and their confs, built in
 #   engine       Engine core (backend table, handles, Page stream); on
 #                Android libengine.so with the JNI glue, on the host a static
 #                library
@@ -85,8 +86,12 @@ target_link_libraries(sane_common INTERFACE usb jpeg)
 add_library(sane_engine STATIC
   ${SANE}/sanei/sanei_usb.c ${SANE}/sanei/sanei_config.c ${SANE}/sanei/sanei_init_debug.c
   ${SANE}/sanei/sanei_constrain_value.c ${SANE}/sanei/sanei_thread.c ${SANE}/sanei/sanei_jpeg.c
-  ${SANE}/backend/sane_strstatus.c)
+  ${SANE}/backend/sane_strstatus.c src/engine_conf.c)
 target_include_directories(sane_engine PUBLIC ${SANE}/include)
+# The linked backends' confs, which sanei_config_open serves from memory.
+engine_write_conf_list(${SANE} ${CMAKE_CURRENT_BINARY_DIR}/generated/engine_conf_list.h)
+set_source_files_properties(src/engine_conf.c PROPERTIES
+  INCLUDE_DIRECTORIES ${CMAKE_CURRENT_BINARY_DIR}/generated)
 # log (Android) and Threads arrive through usb.
 target_link_libraries(sane_engine PRIVATE sane_common PUBLIC usb jpeg m)
 engine_add_backends(sane_engine ${SANE})

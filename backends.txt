@@ -1,0 +1,23 @@
+# scan-engine-android: the SANE backends linked into the Engine.
+# Copyright (C) 2026 Petar Popov
+# GPL-2.0-or-later with the SANE exception; see README.md and COPYING.
+#
+# One backend per line, the default of ENGINE_BACKENDS (cmake/Backends.cmake).
+# The Android library also reads this file: the USB devices it lists for the
+# app come from these backends' .desc files. Each backend must be in
+# licensing/backend-allowlist.txt and have a source list in Backends.cmake.
+#
+# The release-1 set: pixma, tested, then the untested backends.
+pixma
+avision
+plustek
+fujitsu
+canon_dr
+hp
+hp3900
+hp5400
+hp5590
+hpljm1005
+lexmark
+rts8891
+umax1220u

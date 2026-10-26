@@ -2,3 +2,4 @@ _stdint.h
 byteorder.h
 # scan-engine-android: hand-written, not generated
 !_stdint.h
+!byteorder.h

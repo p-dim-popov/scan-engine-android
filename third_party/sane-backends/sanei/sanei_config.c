@@ -126,6 +126,18 @@ sanei_config_get_paths (void)
   return dir_list;
 }
 
+static FILE *
+open_builtin (const char *filename)
+{
+  FILE *fp = sanei_config_open_builtin (filename);
+
+  if (fp)
+    DBG(3, "sanei_config_open: using the built-in `%s'\n", filename);
+  else
+    DBG(2, "sanei_config_open: could not find config file `%s'\n", filename);
+  return fp;
+}
+
 FILE *
 sanei_config_open (const char *filename)
 {
@@ -136,10 +148,7 @@ sanei_config_open (const char *filename)
 
   cfg_dir_list = sanei_config_get_paths ();
   if (!cfg_dir_list)
-    {
-      DBG(2, "sanei_config_open: could not find config file `%s'\n", filename);
-      return NULL;
-    }
+    return open_builtin (filename);
 
   copy = strdup (cfg_dir_list);
 
@@ -157,8 +166,7 @@ sanei_config_open (const char *filename)
   free (copy);
 
   if (!fp)
-    DBG(2, "sanei_config_open: could not find config file `%s'\n", filename);
-
+    fp = open_builtin (filename);
   return fp;
 }
 

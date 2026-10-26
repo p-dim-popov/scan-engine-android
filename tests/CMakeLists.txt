@@ -22,6 +22,8 @@ foreach(name
     app_closing_the_pipe_on_a_later_page_is_a_write_error
     large_page_streams_in_bounded_memory
     linked_backends_are_found_by_name
+    release_backends_initialise_and_list_no_device
+    linked_backends_read_their_upstream_conf
     usb_fd_stays_open_until_its_handle_closes
     usb_fd_is_closed_when_no_device_opens
     usb_open_without_an_fd_is_refused_and_leaves_usb_free
@@ -31,12 +33,19 @@ endforeach()
 
 # ---- licence guards ------------------------------------------------------------
 
-# Configuring with a backend outside licensing/backend-allowlist.txt fails.
-add_test(NAME allowlist_guard_rejects_a_backend_outside_the_list
-  COMMAND ${CMAKE_COMMAND} -S ${PROJECT_SOURCE_DIR} -B ${CMAKE_CURRENT_BINARY_DIR}/allowlist-guard
-          -G ${CMAKE_GENERATOR} -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM} "-DENGINE_BACKENDS=pixma$<SEMICOLON>genesys")
-set_tests_properties(allowlist_guard_rejects_a_backend_outside_the_list PROPERTIES
-  PASS_REGULAR_EXPRESSION "SANE backend 'genesys' is not in licensing/backend-allowlist.txt")
+# Configuring with a backend outside licensing/backend-allowlist.txt fails:
+# one test for each backend the allow-list header names as excluded.
+foreach(excluded
+    genesys epson2 epsonds xerox_mfp canon_lide70 kodakaio kvs1025 kvs20xx
+    kvs40xx magicolor hp4200 stv680 coolscan3 epson canon630u gt68xx snapscan
+    epjitsu pieusb coolscan2)
+  set(name allowlist_guard_rejects_${excluded})
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND} -S ${PROJECT_SOURCE_DIR} -B ${CMAKE_CURRENT_BINARY_DIR}/allowlist-guard/${excluded}
+            -G ${CMAKE_GENERATOR} -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM} "-DENGINE_BACKENDS=pixma$<SEMICOLON>${excluded}")
+  set_tests_properties(${name} PROPERTIES
+    PASS_REGULAR_EXPRESSION "SANE backend '${excluded}' is not in licensing/backend-allowlist.txt")
+endforeach()
 
 # check-sane-exception.sh fails on compiled backend/ and sanei/ files without
 # the exception, and only on those.
