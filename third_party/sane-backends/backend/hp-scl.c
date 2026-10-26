@@ -1502,8 +1502,7 @@ sanei_hp_scsi_pipeout (HpScsi this, int outfd, HpProcessData *procdata)
   sigset_t	old_set, sig_set;
   int		i;
   int           bits_per_channel = procdata->bits_per_channel;
-  /* A reader thread is not cancelled: hp_handle_stopScan sets
-   * procdata->stop and closes the read end of the pipe. */
+  /* procdata->stop: see hp.h */
 #define HP_STOPPED	(signal_caught || procdata->stop)
 
 #define HP_PIPEBUF	32768

@@ -6991,9 +6991,8 @@ do_cancel (Avision_Scanner* s)
     int exit_status;
 
     /* ensure child knows it's time to stop.  A reader thread is not
-       cancelled: that can stop it inside malloc and leave the join
-       waiting for ever.  It sees s->cancelled before its next read,
-       and a write to the closed pipe fails.  */
+       cancelled, which can stop it inside malloc and leave the join
+       waiting for ever: it checks s->cancelled before each read.  */
     if (sanei_thread_is_forked ())
       sanei_thread_kill (s->reader_pid);
     sanei_thread_waitpid (s->reader_pid, &exit_status);
@@ -8354,6 +8353,11 @@ reader_process (void *data)
     {
       DBG (1, "reader_process: virtual duplex scan - no device cleanup!\n");
     }
+  else if (s->cancelled)
+    {
+      /* as a killed child: do_cancel releases the unit after the join */
+      DBG (1, "reader_process: cancelled - no device cleanup!\n");
+    }
   else
     {
       /* poll the cancel button if the scanner is marked as having one */
@@ -8375,7 +8379,7 @@ reader_process (void *data)
 
   if ((dev->hw->feature_type & AV_ADF_FLIPPING_DUPLEX) && s->source_mode == AV_ADF_DUPLEX && s->page % 2) {
     /* front page of flipping duplex */
-    if (exit_status == SANE_STATUS_EOF) {
+    if (exit_status == SANE_STATUS_EOF && !s->cancelled) {
       if (s->val[OPT_ADF_FLIP].w) {
         /* The page flip bit must be reset after every scan, but if the
          * user doesn't care, there's no reason to reset.
