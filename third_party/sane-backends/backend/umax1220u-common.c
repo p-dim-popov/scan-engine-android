@@ -554,7 +554,7 @@ cwritev (UMAX_Handle * scan, UMAX_Cmd cmd, size_t len, const unsigned char *data
   /* Read the opcode back */
 
   CHK (cread (scan, cmd, len, buf, NULL));
-  if (bcmp (buf, data, len))
+  if (memcmp (buf, data, len))
     {
       DBG (1, "cwritev: verification failed\n");
       return SANE_STATUS_IO_ERROR;

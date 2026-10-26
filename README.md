@@ -17,18 +17,23 @@ GPL-2.0-or-later, with the SANE exception kept in every modified and new source 
 ## Layout
 
 - `CMakeLists.txt`: one build for Android and the Linux host.
-- `cmake/Backends.cmake`: `ENGINE_BACKENDS`, the backends linked into the Engine, with each backend's source list.
-- `src/`: Engine core: the table of linked backends, handles and the Page stream (`engine.h` documents them and the wire format); `engine_jni.c`, the JNI glue of the Android Service.
+- `backends.txt`: the backends linked into the Engine, the default of `ENGINE_BACKENDS`.
+- `cmake/Backends.cmake`: `ENGINE_BACKENDS`, with each backend's source list and the sanei modules it needs.
+- `src/`: Engine core: the table of linked backends, handles and the Page stream (`engine.h` documents them and the wire format); `engine_jni.c`, the JNI glue of the Android Service; `engine_conf.c`, the linked backends' confs, built in; `sanei_pio_none.c`, sanei_pio without a parallel port.
 - `tests/`: host tests, run by CTest.
-- `android/`: Android library module: `libengine.so`, the binder contract `IEngine.aidl` and `EngineService`, the bound Service that runs the Engine in its own process.
+- `android/`: Android library module: `libengine.so`, the binder contract `IEngine.aidl`, `EngineService`, the bound Service that runs the Engine in its own process, and the USB devices the backends drive, as resources for the app.
 - `licensing/`: the backend allow-list and the exception-guard exemptions.
 - `scripts/check-sane-exception.sh`: the exception guard.
 
 ## How it is built
 
-The backends link statically into one library, `sane_engine`, through their `sane_<name>_*` entry points. There is no `dll` loader and there are no `.conf` files. The `ENGINE_BACKENDS` CMake list chooses the set (default `pixma`). `ENGINE_WITH_TEST_BACKEND` adds the SANE `test` backend; it is on for the host and Android debug builds and off for Android release builds.
+The backends link statically into one library, `sane_engine`, through their `sane_<name>_*` entry points. There is no `dll` loader. The `ENGINE_BACKENDS` CMake list chooses the set; its default, in `backends.txt`, is pixma, avision, plustek, fujitsu, canon_dr, hp, hp3900, hp5400, hp5590, hpljm1005, lexmark, rts8891 and umax1220u: the USB backends whose every compiled file carries the SANE exception and that need no firmware file. `ENGINE_WITH_TEST_BACKEND` adds the SANE `test` backend; it is on for the host and Android debug builds and off for Android release builds.
 
-On Android, `android/` is an Android library module. The consuming app adds this repository as a git submodule and includes `android/` as a Gradle project, so the Android Gradle plugin, NDK and CMake build it as part of the app build. The ABIs are arm64-v8a and x86_64.
+There are no `.conf` files on disk either. Most backends find a USB device only through the `usb <vendor> <product>` lines of their conf, so each linked backend's upstream `<name>.conf.in` is compiled in (`src/engine_conf.c`, from a list CMake writes when it configures), and `sanei_config_open` reads it from memory when no conf file is found.
+
+On Android, `android/` is an Android library module. The consuming app adds this repository as a git submodule and includes `android/` as a Gradle project, so the Android Gradle plugin, NDK and CMake build it as part of the app build. Release builds are arm64-v8a only; debug builds add x86_64, for the emulator.
+
+The module also generates two resources for the app from the `.desc` files of the backends in `backends.txt` (the Gradle task `generateUsbDevices`): `xml/sane_usb_devices`, one `<device vendor-id product-id backend model>` per USB id, by which the app chooses the backend to open a USB device with, and `xml/sane_usb_device_filter`, the same ids as a USB device filter for the app's manifest. A model its backend lists as unsupported is left out; two backends that list one USB id fail the build.
 
 The module's manifest declares `EngineService` in the process `:engine`, not exported. The app binds it and calls it through `IEngine.aidl`, which carries SANE shapes only: status codes, option descriptors and values, and file descriptors: the USB device's and each Page stream's. A handle is one open device for one Scan Job. `openUsb` opens the device behind a USB file descriptor that the app opened for that Scan Job; the Engine closes the descriptor when the handle closes, so it holds no USB device between Scan Jobs, and one USB handle is open at a time; `streamPage` blocks until the Page ends, and `cancel`, a separate call from another thread, calls `sane_cancel` once the read in progress returns. The Engine's process ends when the app unbinds the Service, so a hung backend or a handle left open by an app that died goes with it.
 
@@ -51,15 +56,15 @@ Release builds log none of it: the build type defines `NDEBUG`, which removes th
 
 ## Tests
 
-`tests/engine_host_test.c` scans with the SANE `test` backend through an Engine handle into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, a cancel from another thread while a Page streams, and memory that stays bounded for a 134 MB Page. A pipe stands in for a USB device's file descriptor to check that the Engine closes it with its handle or on a failed open, and that a second USB handle is busy while one is open. SIGPIPE stays ignored after a Page ends, fails or is cancelled, so a reader that closes the pipe after a backend has joined its reader thread is still a write error. Every test has a 60 s CTest timeout, so a hang fails the run.
+`tests/engine_host_test.c` scans with the SANE `test` backend through an Engine handle into a pipe, then reads the Page stream back. It checks headers, byte counts and byte-exact passthrough (16-bit included). It also checks three-pass Pages, Pages of unknown height, backend errors (300 of them, each in a new process, for a hang on cancel), a reader that closes the pipe early, a cancel from another thread while a Page streams, and memory that stays bounded for a 134 MB Page. A pipe stands in for a USB device's file descriptor to check that the Engine closes it with its handle or on a failed open, and that a second USB handle is busy while one is open. SIGPIPE stays ignored after a Page ends, fails or is cancelled, so a reader that closes the pipe after a backend has joined its reader thread is still a write error. Every backend in `backends.txt` is linked and initialises with no device attached, and `sanei_config_open` serves a linked backend's built-in conf and none for a backend that is not linked. Every test has a 60 s CTest timeout, so a hang fails the run.
 
 ## Licence guards
 
 CI fails when:
 
-- `ENGINE_BACKENDS` names a backend that is not in `licensing/backend-allowlist.txt`. The check runs when CMake configures the build.
+- `ENGINE_BACKENDS` names a backend that is not in `licensing/backend-allowlist.txt`. The check runs when CMake configures the build; a host test configures with each backend the allow-list names as excluded and expects it to fail.
 - An Engine source file (`.c`, `.h`, `.in`, `.kt`, `.java` or `.aidl` outside `third_party/`), committed or not yet added to git, does not contain the SANE exception text: `scripts/check-licence-notices.sh`. Git-ignored build output is skipped.
-- A compiled file under `sane-backends/backend` or `sane-backends/sanei` does not contain the SANE exception text: `scripts/check-sane-exception.sh`. This includes every header and `#include`d `.c` file, read from Ninja's dependency log. A file is exempt only when it is under a non-GPL permissive licence and is listed in `licensing/sane-exception-exemptions.txt` with the reason.
+- A compiled file under `sane-backends/backend` or `sane-backends/sanei` does not contain the SANE exception text: `scripts/check-sane-exception.sh`. This includes every header and `#include`d `.c` file, read from Ninja's dependency log. A file is exempt only when it is listed in `licensing/sane-exception-exemptions.txt` with the reason, and either it is under a non-GPL permissive licence, or its header points to the opening comments of another file (fujitsu's and canon_dr's headers do): then the entry names that file (`by-reference backend/fujitsu.c`), which must carry the exception and be named in the header.
 
 One exception-free GPL file in the Engine process would put the whole process under the plain GPL. Run the guards again after every upstream rebase: a maintainer can withdraw the exception.
 
@@ -67,13 +72,16 @@ One exception-free GPL file in the Engine process would put the whole process un
 
 The first commit imports the three upstream trees unchanged, so `git log -p third_party/` shows every change. In short:
 
-1. `include/sane/config.h` and `include/_stdint.h`: hand-written for Android (bionic) and glibc. Upstream generates them with configure.
+1. `include/sane/config.h`, `include/_stdint.h` and `include/byteorder.h`: hand-written for Android (bionic) and glibc. Upstream generates them with configure.
 2. `sanei/sanei_usb.c`, `include/sane/sanei_usb.h`: `sanei_usb_set_android_fd()`. libusb skips device discovery on Android; the next device scan wraps the app's USB file descriptor with `libusb_wrap_sys_device` and registers it as `libusb:android:<fd>`. Open and close reuse that handle. A new descriptor, or -1, forgets the device behind the previous one and closes its handle, so each Scan Job's descriptor is wrapped afresh; the descriptor itself is the caller's to close.
 3. `sanei/sanei_init_debug.c`: on Android, debug output goes to logcat.
 4. `sanei/sanei_thread.c`: bionic has no `pthread_cancel`; Android uses the existing macOS path (`SIGUSR2` and `pthread_kill`).
 5. `backend/test.c`: in thread mode, `finish_pass` no longer cancels the reader thread. It closes the pipe, so the reader's next write fails and the thread ends, and then joins it. The reader blocks SIGPIPE and frees its buffer on that path. `sanei_thread_kill` cancels a thread asynchronously on Linux (`SIGUSR2` and `pthread_exit` on Android), and a cancel in the reader's first `malloc` left the join waiting for ever in about 1 newly started process in 10. pixma already stops its reader this way.
 6. `sanei/sanei_thread.c`: in thread mode, `sanei_thread_waitpid` sets SIGPIPE back to `SIG_DFL` only when `sanei_thread_begin` changed it from `SIG_DFL` to `SIG_IGN`. Upstream reset any ignored SIGPIPE after every join, for the whole process, so the Engine lost its own `SIG_IGN` after each Page. An app that closed the pipe before the Page's last rows or its END record then killed the Engine instead of ending the Page with a write error.
 7. Build: CMake instead of autotools. pixma's generated option tables are made at build time.
+8. `sanei/sanei_config.c`, `include/sane/sanei_config.h`: when `sanei_config_open` finds no conf file, it returns `sanei_config_open_builtin`'s, which the program provides (`src/engine_conf.c`).
+9. `backend/avision.c`: on Android, the reader thread skips `pthread_setcancelstate` and `pthread_setcanceltype`; bionic has no thread cancellation.
+10. `backend/umax1220u-common.c`: `memcmp` instead of `bcmp`, which bionic does not declare.
 
 ## Updating upstream
 

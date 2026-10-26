@@ -6,7 +6,9 @@
 # backend file and one header it includes lack the exception text, then
 # checks that the guard fails on exactly those files, passes once they are
 # exempted, and refuses exemptions for GPL text or for files no longer
-# compiled. Run with cmake -P; inputs: GUARD, WORK_DIR, NINJA.
+# compiled. A header that points to another file's opening comments passes
+# as covered by reference only when that file carries the exception and the
+# header names it. Run with cmake -P; inputs: GUARD, WORK_DIR, NINJA.
 
 # Split so that this file itself does not count as carrying the exception.
 set(phrase "As a special")
@@ -15,7 +17,8 @@ string(APPEND phrase " exception")
 set(tree ${WORK_DIR}/tree)
 set(build ${WORK_DIR}/build)
 file(REMOVE_RECURSE ${WORK_DIR})
-file(WRITE ${tree}/backend/covered.c "/* ${phrase}, ... */\n#include \"uncovered.h\"\nint covered(void) { return UNCOVERED; }\n")
+file(WRITE ${tree}/backend/covered.c "/* ${phrase}, ... */\n#include \"uncovered.h\"\n#include \"by_reference.h\"\nint covered(void) { return UNCOVERED + BY_REFERENCE; }\n")
+file(WRITE ${tree}/backend/by_reference.h "/* Part of SANE. Please see opening comments in covered.c */\n#define BY_REFERENCE 5\n")
 file(WRITE ${tree}/backend/uncovered.h "/* IJG-style permissive licence */\n#define UNCOVERED 1\n")
 file(WRITE ${tree}/backend/uncovered.c "/* IJG-style permissive licence */\nint uncovered(void) { return 2; }\n")
 file(WRITE ${tree}/backend/gpl_only.c "/* GNU General Public License, no exception */\nint gpl_only(void) { return 4; }\n")
@@ -35,7 +38,7 @@ execute_process(COMMAND ${GUARD} ${build} ${tree} ${WORK_DIR}/no-exemptions.txt
 if(result EQUAL 0)
   message(FATAL_ERROR "the guard passed a build with uncovered files:\n${out}")
 endif()
-foreach(expected backend/uncovered.c backend/uncovered.h backend/gpl_only.c)
+foreach(expected backend/uncovered.c backend/uncovered.h backend/by_reference.h backend/gpl_only.c)
   if(NOT out MATCHES "${expected}")
     message(FATAL_ERROR "the guard did not name ${expected}:\n${out}")
   endif()
@@ -57,7 +60,7 @@ function(run_guard exemptions expect_pass why)
   endif()
 endfunction()
 
-set(permissive "backend/uncovered.c  permissive\nbackend/uncovered.h  permissive\n")
+set(permissive "backend/uncovered.c  permissive\nbackend/uncovered.h  permissive\nbackend/by_reference.h  by-reference backend/covered.c\n")
 run_guard("${permissive}" FALSE "while a compiled GPL file lacks the exception")
 run_guard("${permissive}backend/gpl_only.c  wrongly exempted\n" FALSE
           "with an exemption for a file under the GNU GPL")
@@ -66,3 +69,11 @@ file(WRITE ${tree}/CMakeLists.txt "cmake_minimum_required(VERSION 3.22)\nproject
 run_guard("${permissive}" TRUE "although every uncovered file is exempted")
 run_guard("${permissive}backend/unused.c  no longer compiled\n" FALSE
           "with an exemption for a file that is not compiled")
+
+set(exempt "backend/uncovered.c  permissive\nbackend/uncovered.h  permissive\n")
+run_guard("${exempt}backend/by_reference.h  by-reference backend/uncovered.c\n" FALSE
+          "with a reference to a file that lacks the exception")
+run_guard("${exempt}backend/by_reference.h  by-reference sanei/helper.c\n" FALSE
+          "with a reference to a file that the header does not name")
+run_guard("${exempt}backend/by_reference.h  by-reference backend/missing.c\n" FALSE
+          "with a reference to a file that does not exist")

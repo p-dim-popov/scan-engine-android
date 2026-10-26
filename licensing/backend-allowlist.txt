@@ -14,14 +14,16 @@
 #
 # Never list (no exception): genesys, epson2, epsonds, xerox_mfp,
 # canon_lide70, kodakaio, kvs1025, kvs20xx, kvs40xx, magicolor, hp4200,
-# stv680, coolscan3. Never list (vendor firmware): gt68xx, snapscan.
+# stv680, coolscan3. Never list (compiled files without the exception or any
+# licence notice): epson (epson_scsi.c, epson_usb.c and their headers),
+# canon630u (lm9830.h). Never list (vendor firmware): gt68xx, snapscan,
+# epjitsu (every model it lists needs a .nal file from the vendor's driver).
 # Not wanted (film scanners): pieusb, coolscan2.
 
 # Release-1 set.
 pixma
 avision
 plustek
-epson
 fujitsu
 canon_dr
 hp
@@ -30,12 +32,11 @@ hp5400
 hp5590
 hpljm1005
 lexmark
-epjitsu
 rts8891
 umax1220u
-canon630u
 
-# Eligible but left out of release 1; adding one is one CMake line.
+# Eligible but left out of release 1; adding one is a line in backends.txt and
+# its source list in cmake/Backends.cmake.
 artec_eplus48u
 cardscan
 ma1509

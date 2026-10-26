@@ -56,6 +56,7 @@
 
 #include "engine.h"
 #include "sane/saneopts.h"
+#include "sane/sanei_config.h"
 #include "sane/sanei_thread.h"
 
 static int failures;
@@ -763,6 +764,71 @@ linked_backends_are_found_by_name (void)
   pixma->exit ();
 }
 
+/* The release-1 set: pixma and the untested USB backends whose every
+   compiled file carries the SANE exception and that need no firmware
+   file.  */
+static const char *const release_backends[] = {
+  "pixma", "avision", "plustek", "fujitsu", "canon_dr", "hp", "hp3900",
+  "hp5400", "hp5590", "hpljm1005", "lexmark", "rts8891", "umax1220u",
+};
+
+static void
+release_backends_initialise_and_list_no_device (void)
+{
+  size_t i;
+
+  CHECK (engine_find_backend ("epjitsu") == NULL);
+  CHECK (engine_find_backend ("epson") == NULL);
+  CHECK (engine_find_backend ("canon630u") == NULL);
+  for (i = 0; i < sizeof release_backends / sizeof release_backends[0]; i++)
+    {
+      const engine_backend *backend = engine_find_backend (release_backends[i]);
+      const SANE_Device **devices = NULL;
+      SANE_Int version;
+
+      if (!backend)
+        {
+          fprintf (stderr, "backend %s is not linked\n", release_backends[i]);
+          failures++;
+          continue;
+        }
+      CHECK_EQ (backend->init (&version, NULL), SANE_STATUS_GOOD);
+      CHECK_EQ (backend->get_devices (&devices, SANE_TRUE), SANE_STATUS_GOOD);
+      CHECK (devices != NULL && devices[0] == NULL);
+      backend->exit ();
+    }
+}
+
+/* Reads the conf sanei_config_open serves for name; 0 when it serves none.  */
+static int
+read_conf (const char *name, char *text, size_t size)
+{
+  FILE *fp = sanei_config_open (name);
+  size_t n;
+
+  if (!fp)
+    return 0;
+  n = fread (text, 1, size - 1, fp);
+  text[n] = '\0';
+  fclose (fp);
+  return 1;
+}
+
+static void
+linked_backends_read_their_upstream_conf (void)
+{
+  char text[16384];
+
+  /* fujitsu finds a USB device only through the usb lines of its conf.  */
+  CHECK (read_conf ("fujitsu.conf", text, sizeof text));
+  CHECK (strstr (text, "\nusb 0x04c5 0x1042\n") != NULL);
+  CHECK (read_conf ("lexmark.conf", text, sizeof text));
+  CHECK (strstr (text, "usb 0x043d 0x007c") != NULL);
+  /* No conf for a backend that is not linked.  */
+  CHECK (!read_conf ("genesys.conf", text, sizeof text));
+  CHECK (!read_conf ("epjitsu.conf", text, sizeof text));
+}
+
 /* ---- USB file descriptors -------------------------------------------------- */
 
 /* A pipe stands in for a USB device's file descriptor: the Engine is given
@@ -898,6 +964,10 @@ static const struct
     large_page_streams_in_bounded_memory },
   { "linked_backends_are_found_by_name",
     linked_backends_are_found_by_name },
+  { "release_backends_initialise_and_list_no_device",
+    release_backends_initialise_and_list_no_device },
+  { "linked_backends_read_their_upstream_conf",
+    linked_backends_read_their_upstream_conf },
   { "usb_fd_stays_open_until_its_handle_closes",
     usb_fd_stays_open_until_its_handle_closes },
   { "usb_fd_is_closed_when_no_device_opens",

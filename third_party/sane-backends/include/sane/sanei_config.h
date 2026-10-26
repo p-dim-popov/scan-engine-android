@@ -61,12 +61,26 @@ extern "C" {
  *	1st: SANE_CONFIG_DIR environment variable.
  *	2nd: PATH_SANE_CONFIG_DIR set during configuration.
  *	3rd: Current directory.
+ * When none of them holds the file, the conf built into the program
+ * (sanei_config_open_builtin) is used.
  * @param name filename with extension but without path (such as "mustek.conf")
  *
  * @return file pointer, or NULL if not found
  *
  */
 extern FILE *sanei_config_open (const char *name);
+
+/** Open a configuration file built into the program.
+ *
+ * The program that links sanei_config provides it.  An Android app has no
+ * configuration directory, so its backends read the confs compiled into it.
+ *
+ * @param name filename with extension but without path (such as "mustek.conf")
+ *
+ * @return file pointer to read the built-in text from, or NULL if the
+ *         program has no such file
+ */
+extern FILE *sanei_config_open_builtin (const char *name);
 
 /** Read a line from configuration file.
  *

@@ -7588,7 +7588,9 @@ reader_process (void *data)
     sigemptyset (&sigterm_set);
     sigaddset (&sigterm_set, SIGTERM);
   }
-#ifdef USE_PTHREAD
+#if defined (USE_PTHREAD) && !defined (__ANDROID__)
+  /* bionic has no pthread cancellation; sanei_thread stops a reader thread
+     on Android with SIGUSR2.  */
   else {
     int old;
     pthread_setcancelstate (PTHREAD_CANCEL_ENABLE, &old);
@@ -7806,7 +7808,7 @@ reader_process (void *data)
 
 	  if (sanei_thread_is_forked())
 	    sigprocmask (SIG_BLOCK, &sigterm_set, 0);
-#ifdef USE_PTHREAD
+#if defined (USE_PTHREAD) && !defined (__ANDROID__)
 	  else
 	    {
 	      int old;
@@ -7818,7 +7820,7 @@ reader_process (void *data)
 
 	  if (sanei_thread_is_forked())
 	    sigprocmask (SIG_UNBLOCK, &sigterm_set, 0);
-#ifdef USE_PTHREAD
+#if defined (USE_PTHREAD) && !defined (__ANDROID__)
 	  else
 	    {
 	      int old;
